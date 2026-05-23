@@ -35,3 +35,7 @@ path = "src/lib.rs"
 name = "synaptic-mesh"
 path = "src/bin/main.rs"
 required-features = []
+
+# Override claude_market to pick up the local libp2p 0.56 fix (RUSTSEC-2026-0002)
+[patch.crates-io]
+claude_market = { path = "crates/claude_market" }

@@ -315,7 +315,7 @@ impl Swarm {
         let agents: Vec<SwarmAgent> = self.agents.iter().map(|a| a.clone()).collect();
         
         // Find best solution
-        if let Some(best_agent) = agents.iter().max_by(|a, b| a.fitness.partial_cmp(&b.fitness).unwrap()) {
+        if let Some(best_agent) = agents.iter().max_by(|a, b| a.fitness.total_cmp(&b.fitness)) {
             let solution = Solution {
                 position: best_agent.position,
                 fitness: best_agent.fitness,
