@@ -29,7 +29,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = "0.4"
 
 # Memory management and performance
-lru = "0.12"
+lru = "0.16"
 dashmap = { version = "6.0", features = ["serde"] }
 tokio = { version = "1.0", features = ["rt", "sync", "time"], optional = true }
 
