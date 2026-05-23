@@ -11,8 +11,9 @@ use libp2p::{
     gossipsub::{self, Event as GossipsubEvent, IdentTopic, MessageAuthenticity, ValidationMode},
     identify::{self, Event as IdentifyEvent},
     kad::{self, Event as KademliaEvent, QueryResult, RecordKey},
-    noise, tcp, yamux, Multiaddr, PeerId, Swarm,
+    noise, tcp, yamux, Multiaddr, PeerId, SwarmBuilder,
     swarm::NetworkBehaviour,
+    swarm::Swarm,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -206,60 +207,63 @@ impl P2PNetwork {
         let local_key = libp2p::identity::Keypair::generate_ed25519();
         let local_peer_id = PeerId::from(local_key.public());
 
-        // Create the Gossipsub behaviour
-        let gossipsub_config = gossipsub::ConfigBuilder::default()
-            .heartbeat_interval(Duration::from_secs(10))
-            .validation_mode(ValidationMode::Strict)
-            .message_id_fn(|message| {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                message.data.hash(&mut hasher);
-                gossipsub::MessageId::from(hasher.finish().to_string())
+        // Build the swarm using the SwarmBuilder API (libp2p 0.54+)
+        let swarm = SwarmBuilder::with_existing_identity(local_key.clone())
+            .with_tokio()
+            .with_tcp(
+                tcp::Config::default(),
+                noise::Config::new,
+                yamux::Config::default,
+            )
+            .map_err(|e| MarketError::Network(format!("TCP transport error: {}", e)))?
+            .with_behaviour(|key| {
+                // Create the Gossipsub behaviour
+                let gossipsub_config = gossipsub::ConfigBuilder::default()
+                    .heartbeat_interval(Duration::from_secs(10))
+                    .validation_mode(ValidationMode::Strict)
+                    .message_id_fn(|message| {
+                        use std::collections::hash_map::DefaultHasher;
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = DefaultHasher::new();
+                        message.data.hash(&mut hasher);
+                        gossipsub::MessageId::from(hasher.finish().to_string())
+                    })
+                    .build()
+                    .expect("valid gossipsub config");
+
+                let gossipsub = gossipsub::Behaviour::new(
+                    MessageAuthenticity::Signed(key.clone()),
+                    gossipsub_config,
+                )
+                .expect("valid gossipsub behaviour");
+
+                // Create the Kademlia behaviour
+                let mut kademlia = kad::Behaviour::new(
+                    local_peer_id,
+                    kad::store::MemoryStore::new(local_peer_id),
+                );
+                kademlia.set_mode(Some(kad::Mode::Server));
+
+                // Create the Identify behaviour
+                let identify = identify::Behaviour::new(identify::Config::new(
+                    "/synaptic-market/1.0.0".to_string(),
+                    key.public(),
+                ));
+
+                MarketBehaviour {
+                    gossipsub,
+                    kademlia,
+                    identify,
+                }
             })
-            .build()
-            .map_err(|e| MarketError::Network(format!("Gossipsub config error: {}", e)))?;
-
-        let gossipsub = gossipsub::Behaviour::new(
-            MessageAuthenticity::Signed(local_key.clone()),
-            gossipsub_config,
-        )
-        .map_err(|e| MarketError::Network(format!("Gossipsub creation error: {}", e)))?;
-
-        // Create the Kademlia behaviour
-        let mut kademlia = kad::Behaviour::new(
-            local_peer_id,
-            kad::store::MemoryStore::new(local_peer_id),
-        );
-        kademlia.set_mode(Some(kad::Mode::Server));
-
-        // Create the Identify behaviour
-        let identify = identify::Behaviour::new(identify::Config::new(
-            "/synaptic-market/1.0.0".to_string(),
-            local_key.public(),
-        ));
-
-        // Combine behaviors
-        let behaviour = MarketBehaviour {
-            gossipsub,
-            kademlia,
-            identify,
-        };
-
-        // Create the swarm
-        let swarm = Swarm::with_tokio_executor(
-            libp2p::Transport::new(tcp::Config::default())
-                .upgrade(libp2p::core::upgrade::Version::V1)
-                .authenticate(noise::Config::new(&local_key)?)
-                .multiplex(yamux::Config::default())
-                .boxed(),
-            behaviour,
-            local_peer_id,
-            libp2p::swarm::Config::with_tokio_executor(),
-        );
+            .map_err(|e| MarketError::Network(format!("Behaviour build error: {}", e)))?
+            .with_swarm_config(|cfg| {
+                cfg.with_idle_connection_timeout(Duration::from_secs(60))
+            })
+            .build();
 
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
-        
+
         Ok(Self {
             swarm,
             event_sender,
