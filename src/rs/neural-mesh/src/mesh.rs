@@ -1,13 +1,13 @@
 //! Neural mesh topology and connection management
 
+use rand::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use rand::prelude::*;
 
-use crate::{NeuralMeshError, Result, cognition::CognitionResult};
+use crate::{cognition::CognitionResult, NeuralMeshError, Result};
 
 /// Neural mesh that manages agent connectivity
 #[derive(Debug)]
@@ -45,18 +45,18 @@ impl NeuralMesh {
     pub async fn add_agent(&self, agent_id: Uuid, node: MeshNode) -> Result<()> {
         let mut nodes = self.nodes.write().await;
         let mut connections = self.connections.write().await;
-        
+
         // Add node
         nodes.insert(agent_id, node);
-        
+
         // Create connections based on topology
         let new_connections = self.create_connections(agent_id, &nodes).await?;
         connections.insert(agent_id, new_connections);
-        
+
         // Update stats
         let mut stats = self.stats.write().await;
         stats.connections = connections.values().map(|c| c.len()).sum();
-        
+
         tracing::info!("Added agent {} to mesh", agent_id);
         Ok(())
     }
@@ -65,22 +65,22 @@ impl NeuralMesh {
     pub async fn remove_agent(&self, agent_id: Uuid) -> Result<()> {
         let mut nodes = self.nodes.write().await;
         let mut connections = self.connections.write().await;
-        
+
         // Remove node
         nodes.remove(&agent_id);
-        
+
         // Remove connections
         connections.remove(&agent_id);
-        
+
         // Remove references from other nodes
         for (_, node_connections) in connections.iter_mut() {
             node_connections.retain(|c| c.to != agent_id);
         }
-        
+
         // Update stats
         let mut stats = self.stats.write().await;
         stats.connections = connections.values().map(|c| c.len()).sum();
-        
+
         tracing::info!("Removed agent {} from mesh", agent_id);
         Ok(())
     }
@@ -88,22 +88,29 @@ impl NeuralMesh {
     /// Update connections based on cognition results
     pub async fn update_connections(&self, result: &CognitionResult) -> Result<()> {
         let mut connections = self.connections.write().await;
-        
+
         // Strengthen connections between agents that contributed
         for (agent1, contrib1) in &result.agent_contributions {
             for (agent2, contrib2) in &result.agent_contributions {
                 if agent1 != agent2 {
                     if let Some(agent_connections) = connections.get_mut(agent1) {
-                        // Find and update connection strength
-                        if let Some(connection) = agent_connections.iter_mut().find(|c| &c.to == agent2) {
-                            let strength_delta = contrib1 * contrib2 * 0.1; // Learning factor
-                            connection.strength = (connection.strength + strength_delta).min(1.0);
+                        // HashSet doesn't support iter_mut; remove + reinsert to update strength
+                        if let Some(existing) =
+                            agent_connections.iter().find(|c| &c.to == agent2).cloned()
+                        {
+                            let strength_delta = contrib1 * contrib2 * 0.1;
+                            let updated = Connection {
+                                strength: (existing.strength + strength_delta).min(1.0),
+                                ..existing
+                            };
+                            agent_connections.remove(&updated);
+                            agent_connections.insert(updated);
                         }
                     }
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -116,45 +123,47 @@ impl NeuralMesh {
     /// Get neighbors of a node
     pub async fn get_neighbors(&self, agent_id: Uuid) -> Result<Vec<Uuid>> {
         let connections = self.connections.read().await;
-        
+
         if let Some(node_connections) = connections.get(&agent_id) {
             Ok(node_connections.iter().map(|c| c.to).collect())
         } else {
-            Err(NeuralMeshError::NotFound(format!("Agent {} not found in mesh", agent_id)))
+            Err(NeuralMeshError::NotFound(format!(
+                "Agent {} not found in mesh",
+                agent_id
+            )))
         }
     }
 
     /// Get shortest path between two nodes
     pub async fn shortest_path(&self, from: Uuid, to: Uuid) -> Result<Vec<Uuid>> {
         let connections = self.connections.read().await;
-        
+
         // Dijkstra's algorithm
         let mut distances: HashMap<Uuid, f64> = HashMap::new();
         let mut previous: HashMap<Uuid, Option<Uuid>> = HashMap::new();
         let mut unvisited: HashSet<Uuid> = connections.keys().cloned().collect();
-        
+
         // Initialize distances
         for &node in connections.keys() {
             distances.insert(node, f64::INFINITY);
             previous.insert(node, None);
         }
         distances.insert(from, 0.0);
-        
+
         while !unvisited.is_empty() {
             // Find unvisited node with minimum distance
-            let current = unvisited.iter()
-                .min_by(|&&a, &&b| {
-                    distances[&a].partial_cmp(&distances[&b]).unwrap()
-                })
+            let current = unvisited
+                .iter()
+                .min_by(|&&a, &&b| distances[&a].partial_cmp(&distances[&b]).unwrap())
                 .cloned();
-            
+
             if let Some(current) = current {
                 if current == to {
                     break;
                 }
-                
+
                 unvisited.remove(&current);
-                
+
                 // Update distances to neighbors
                 if let Some(neighbors) = connections.get(&current) {
                     for connection in neighbors {
@@ -171,11 +180,11 @@ impl NeuralMesh {
                 break;
             }
         }
-        
+
         // Reconstruct path
         let mut path = Vec::new();
         let mut current = Some(to);
-        
+
         while let Some(node) = current {
             path.push(node);
             current = previous.get(&node).and_then(|&p| p);
@@ -184,12 +193,15 @@ impl NeuralMesh {
                 break;
             }
         }
-        
+
         if path.last() == Some(&from) {
             path.reverse();
             Ok(path)
         } else {
-            Err(NeuralMeshError::NotFound(format!("No path from {} to {}", from, to)))
+            Err(NeuralMeshError::NotFound(format!(
+                "No path from {} to {}",
+                from, to
+            )))
         }
     }
 
@@ -197,14 +209,15 @@ impl NeuralMesh {
     async fn create_connections(
         &self,
         agent_id: Uuid,
-        nodes: &HashMap<Uuid, MeshNode>
+        nodes: &HashMap<Uuid, MeshNode>,
     ) -> Result<HashSet<Connection>> {
         let mut connections = HashSet::new();
-        let other_nodes: Vec<Uuid> = nodes.keys()
+        let other_nodes: Vec<Uuid> = nodes
+            .keys()
             .filter(|&&id| id != agent_id)
             .cloned()
             .collect();
-        
+
         match &self.topology {
             MeshTopology::FullyConnected => {
                 // Connect to all other nodes
@@ -220,20 +233,20 @@ impl NeuralMesh {
                 // Small-world network (Watts-Strogatz model)
                 let mut rng = thread_rng();
                 let n = other_nodes.len();
-                
+
                 if n > 0 {
                     // Create ring lattice with k neighbors
                     let k_actual = (*k).min(n);
-                    for i in 1..=k_actual/2 {
+                    for i in 1..=k_actual / 2 {
                         let idx1 = i % n;
                         let idx2 = (n - i) % n;
-                        
+
                         connections.insert(Connection {
                             to: other_nodes[idx1],
                             strength: ConnectionStrength::default_strength(),
                             connection_type: ConnectionType::Direct,
                         });
-                        
+
                         if idx1 != idx2 {
                             connections.insert(Connection {
                                 to: other_nodes[idx2],
@@ -242,7 +255,7 @@ impl NeuralMesh {
                             });
                         }
                     }
-                    
+
                     // Rewire with probability p
                     let mut rewired_connections = Vec::new();
                     for connection in &connections {
@@ -260,7 +273,7 @@ impl NeuralMesh {
                             }
                         }
                     }
-                    
+
                     // Apply rewiring
                     for rewired in rewired_connections {
                         connections.insert(rewired);
@@ -270,26 +283,25 @@ impl NeuralMesh {
             MeshTopology::ScaleFree { m } => {
                 // Scale-free network (Barabási-Albert model)
                 let mut rng = thread_rng();
-                
+
                 if other_nodes.len() >= *m {
                     // Preferential attachment
-                    let node_degrees: Vec<(Uuid, usize)> = other_nodes.iter()
+                    let node_degrees: Vec<(Uuid, usize)> = other_nodes
+                        .iter()
                         .map(|&id| {
-                            let degree = nodes.get(&id)
-                                .map(|n| n.connection_count)
-                                .unwrap_or(1);
+                            let degree = nodes.get(&id).map(|n| n.connection_count).unwrap_or(1);
                             (id, degree)
                         })
                         .collect();
-                    
+
                     let total_degree: usize = node_degrees.iter().map(|(_, d)| d).sum();
-                    
+
                     // Connect to m nodes with probability proportional to degree
                     let mut connected = HashSet::new();
                     while connected.len() < *m {
                         let r = rng.gen_range(0..total_degree);
                         let mut cumulative = 0;
-                        
+
                         for (id, degree) in &node_degrees {
                             cumulative += degree;
                             if cumulative > r && !connected.contains(id) {
@@ -305,11 +317,14 @@ impl NeuralMesh {
                     }
                 }
             }
-            MeshTopology::Hierarchical { levels, branching_factor } => {
+            MeshTopology::Hierarchical {
+                levels,
+                branching_factor,
+            } => {
                 // Hierarchical network
                 if let Some(node) = nodes.get(&agent_id) {
                     let level = node.hierarchy_level.unwrap_or(0);
-                    
+
                     // Connect to parent (if not at top level)
                     if level > 0 {
                         // Find a node at level - 1
@@ -324,12 +339,14 @@ impl NeuralMesh {
                             }
                         }
                     }
-                    
+
                     // Connect to children (if not at bottom level)
                     if level < levels - 1 {
                         let mut children_count = 0;
                         for (&other_id, other_node) in nodes.iter() {
-                            if other_node.hierarchy_level == Some(level + 1) && children_count < *branching_factor {
+                            if other_node.hierarchy_level == Some(level + 1)
+                                && children_count < *branching_factor
+                            {
                                 connections.insert(Connection {
                                     to: other_id,
                                     strength: ConnectionStrength::default_strength(),
@@ -342,7 +359,7 @@ impl NeuralMesh {
                 }
             }
         }
-        
+
         Ok(connections)
     }
 }
@@ -352,18 +369,18 @@ impl NeuralMesh {
 pub enum MeshTopology {
     /// All nodes connected to all other nodes
     FullyConnected,
-    
+
     /// Small-world network (high clustering, low path length)
     SmallWorld {
         k: usize, // Average degree
         p: f64,   // Rewiring probability
     },
-    
+
     /// Scale-free network (power-law degree distribution)
     ScaleFree {
         m: usize, // Number of connections for new nodes
     },
-    
+
     /// Hierarchical structure
     Hierarchical {
         levels: usize,
@@ -429,7 +446,7 @@ impl ConnectionStrength {
     pub fn default_strength() -> f64 {
         0.5
     }
-    
+
     pub fn update(current: f64, delta: f64) -> f64 {
         (current + delta).clamp(0.0, 1.0)
     }
@@ -459,10 +476,10 @@ mod tests {
     async fn test_add_remove_agent() {
         let topology = MeshTopology::FullyConnected;
         let mesh = NeuralMesh::new(topology).await.unwrap();
-        
+
         let agent_id = Uuid::new_v4();
         let node = MeshNode::new(agent_id, vec!["test".to_string()]);
-        
+
         assert!(mesh.add_agent(agent_id, node).await.is_ok());
         assert!(mesh.remove_agent(agent_id).await.is_ok());
     }
@@ -471,10 +488,10 @@ mod tests {
     fn test_connection_strength() {
         let strength = ConnectionStrength::default_strength();
         assert_eq!(strength, 0.5);
-        
+
         let updated = ConnectionStrength::update(0.7, 0.5);
         assert_eq!(updated, 1.0); // Clamped to max
-        
+
         let decreased = ConnectionStrength::update(0.3, -0.5);
         assert_eq!(decreased, 0.0); // Clamped to min
     }

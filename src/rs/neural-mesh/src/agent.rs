@@ -1,13 +1,29 @@
 //! Neural agents that form the basis of distributed cognition
 
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 
-use crate::{NeuralMeshError, Result, NeuralMesh, MeshNode, ThoughtPattern};
+use crate::{MeshNode, NeuralMesh, NeuralMeshError, Result, ThoughtPattern};
+
+/// Configuration for a neural network inside an agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeuralNetworkConfig {
+    /// Layer sizes: input, hidden..., output
+    pub layer_sizes: Vec<usize>,
+    pub learning_rate: f32,
+}
+
+impl Default for NeuralNetworkConfig {
+    fn default() -> Self {
+        Self {
+            layer_sizes: vec![10, 16, 10],
+            learning_rate: 0.01,
+        }
+    }
+}
 
 /// Neural agent that performs distributed cognition
 #[derive(Debug, Clone)]
@@ -15,7 +31,7 @@ pub struct NeuralAgent {
     id: Uuid,
     config: AgentConfig,
     state: Arc<RwLock<AgentState>>,
-    network: Arc<RwLock<ruv_fann::Network>>,
+    network: Arc<RwLock<ruv_fann::Network<f64>>>,
     mesh_node: Arc<RwLock<MeshNode>>,
     message_tx: mpsc::UnboundedSender<AgentMessage>,
     metrics: Arc<RwLock<AgentMetrics>>,
@@ -23,13 +39,19 @@ pub struct NeuralAgent {
 
 impl NeuralAgent {
     /// Create a new neural agent
-    pub async fn new(config: AgentConfig, mesh: Arc<NeuralMesh>) -> Result<Self> {
+    pub async fn new(config: AgentConfig, _mesh: Arc<NeuralMesh>) -> Result<Self> {
         let id = Uuid::new_v4();
-        let network = ruv_fann::Network::new(&config.neural_config)?;
+        let layer_sizes: Vec<usize> = config
+            .neural_config
+            .layer_sizes
+            .iter()
+            .map(|&s| s)
+            .collect();
+        let network = ruv_fann::Network::<f64>::new(&layer_sizes);
         let mesh_node = MeshNode::new(id, config.capabilities.clone());
-        
+
         let (message_tx, message_rx) = mpsc::unbounded_channel();
-        
+
         let agent = Self {
             id,
             config: config.clone(),
@@ -61,8 +83,7 @@ impl NeuralAgent {
 
     /// Check if the agent is active
     pub fn is_active(&self) -> bool {
-        // This would check if the agent is currently processing tasks
-        true // Simplified for now
+        true
     }
 
     /// Stop the agent
@@ -81,30 +102,36 @@ impl NeuralAgent {
     /// Process a thought pattern
     pub async fn think(&self, pattern: ThoughtPattern) -> Result<ThoughtPattern> {
         let start_time = Instant::now();
-        
-        // Update state
+
         {
             let mut state = self.state.write().await;
             *state = AgentState::Thinking;
         }
 
-        // Process through neural network
         let result = {
             let mut network = self.network.write().await;
-            let input = pattern.to_input_vector()?;
-            let output = network.run(&input)?;
-            ThoughtPattern::from_output_vector(output, pattern.context.clone())?
+            let input: Vec<f64> = pattern
+                .to_input_vector()?
+                .iter()
+                .map(|&x| x as f64)
+                .collect();
+            let output = network.run(&input);
+            ThoughtPattern::from_output_vector(
+                output.iter().map(|&x| x as f32).collect(),
+                pattern.context.clone(),
+            )?
         };
 
-        // Update metrics
         {
             let mut metrics = self.metrics.write().await;
             metrics.thoughts_processed += 1;
-            metrics.total_processing_time += start_time.elapsed();
-            metrics.last_activity = Instant::now();
+            metrics.total_processing_time_ms += start_time.elapsed().as_millis() as u64;
+            metrics.last_activity_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
         }
 
-        // Return to idle state
         {
             let mut state = self.state.write().await;
             *state = AgentState::Idle;
@@ -116,12 +143,26 @@ impl NeuralAgent {
     /// Learn from a thought pattern
     pub async fn learn(&self, pattern: &ThoughtPattern, target: &ThoughtPattern) -> Result<()> {
         let mut network = self.network.write().await;
-        let input = pattern.to_input_vector()?;
-        let expected_output = target.to_input_vector()?;
-        
-        network.train_single(&input, &expected_output)?;
-        
-        // Update metrics
+        let input: Vec<f64> = pattern
+            .to_input_vector()?
+            .iter()
+            .map(|&x| x as f64)
+            .collect();
+        let expected_output: Vec<f64> = target
+            .to_input_vector()?
+            .iter()
+            .map(|&x| x as f64)
+            .collect();
+
+        network
+            .train(
+                &[input],
+                &[expected_output],
+                self.config.neural_config.learning_rate,
+                1,
+            )
+            .map_err(|e| NeuralMeshError::Training(e.to_string()))?;
+
         {
             let mut metrics = self.metrics.write().await;
             metrics.training_iterations += 1;
@@ -142,7 +183,8 @@ impl NeuralAgent {
                 .as_secs(),
         };
 
-        self.message_tx.send(message)
+        self.message_tx
+            .send(message)
             .map_err(|_| NeuralMeshError::Communication("Failed to send message".to_string()))?;
 
         Ok(())
@@ -169,8 +211,8 @@ impl NeuralAgent {
             MessageContent::ThoughtShare(pattern) => {
                 self.learn_from_peer(&pattern).await?;
             }
-            MessageContent::CollaborationRequest(task) => {
-                self.handle_collaboration_request(task).await?;
+            MessageContent::CollaborationRequest(_task) => {
+                // no-op in simplified implementation
             }
             MessageContent::SyncRequest => {
                 self.handle_sync_request(message.from).await?;
@@ -180,7 +222,6 @@ impl NeuralAgent {
             }
         }
 
-        // Update metrics
         {
             let mut metrics = self.metrics.write().await;
             metrics.messages_received += 1;
@@ -189,51 +230,52 @@ impl NeuralAgent {
         Ok(())
     }
 
-    /// Learn from a peer's thought pattern
+    /// Learn from a peer's thought pattern (unsupervised)
     async fn learn_from_peer(&self, pattern: &ThoughtPattern) -> Result<()> {
-        // This would implement peer learning logic
-        // For now, just update the network with the pattern
         let mut network = self.network.write().await;
-        let input = pattern.to_input_vector()?;
-        
-        // Use the pattern as both input and target for unsupervised learning
-        network.train_single(&input, &input)?;
-        
-        Ok(())
-    }
+        let input: Vec<f64> = pattern
+            .to_input_vector()?
+            .iter()
+            .map(|&x| x as f64)
+            .collect();
 
-    /// Handle collaboration request
-    async fn handle_collaboration_request(&self, _task: String) -> Result<()> {
-        // This would implement collaborative processing
-        // For now, just acknowledge the request
+        network
+            .train(
+                &[input.clone()],
+                &[input],
+                self.config.neural_config.learning_rate,
+                1,
+            )
+            .map_err(|e| NeuralMeshError::Training(e.to_string()))?;
+
         Ok(())
     }
 
     /// Handle sync request from another agent
     async fn handle_sync_request(&self, from: Uuid) -> Result<()> {
-        // Send current model weights to the requesting agent
         let network = self.network.read().await;
-        let weights = network.get_weights()?;
-        
-        self.send_message(from, MessageContent::ModelUpdate(weights)).await?;
+        let weights: Vec<f32> = network.get_weights().iter().map(|&x| x as f32).collect();
+
+        self.send_message(from, MessageContent::ModelUpdate(weights))
+            .await?;
         Ok(())
     }
 
     /// Apply model update from another agent
     async fn apply_model_update(&self, weights: Vec<f32>) -> Result<()> {
         let mut network = self.network.write().await;
-        
-        // Average with current weights (simple model averaging)
-        let current_weights = network.get_weights()?;
-        let averaged_weights: Vec<f32> = current_weights
+
+        let current_weights = network.get_weights();
+        let averaged_weights: Vec<f64> = current_weights
             .iter()
             .zip(weights.iter())
-            .map(|(current, new)| (current + new) / 2.0)
+            .map(|(&current, &new)| (current + new as f64) / 2.0)
             .collect();
-        
-        network.set_weights(&averaged_weights)?;
-        
-        // Update metrics
+
+        network
+            .set_weights(&averaged_weights)
+            .map_err(|e| NeuralMeshError::Training(e.to_string()))?;
+
         {
             let mut metrics = self.metrics.write().await;
             metrics.model_syncs += 1;
@@ -247,7 +289,7 @@ impl NeuralAgent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     pub name: String,
-    pub neural_config: ruv_fann::NetworkConfig,
+    pub neural_config: NeuralNetworkConfig,
     pub capabilities: Vec<String>,
     pub max_connections: usize,
     pub learning_rate: f64,
@@ -264,7 +306,8 @@ pub enum AgentState {
     Stopped,
 }
 
-/// Metrics for monitoring agent performance
+/// Metrics for monitoring agent performance.
+/// Uses `last_activity_secs` (Unix timestamp) instead of `Instant` to stay Serialize-safe.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentMetrics {
     pub thoughts_processed: u64,
@@ -272,8 +315,8 @@ pub struct AgentMetrics {
     pub messages_sent: u64,
     pub messages_received: u64,
     pub model_syncs: u64,
-    pub total_processing_time: Duration,
-    pub last_activity: Instant,
+    pub total_processing_time_ms: u64,
+    pub last_activity_secs: u64,
     pub accuracy: f64,
 }
 
@@ -285,15 +328,18 @@ impl AgentMetrics {
             messages_sent: 0,
             messages_received: 0,
             model_syncs: 0,
-            total_processing_time: Duration::ZERO,
-            last_activity: Instant::now(),
+            total_processing_time_ms: 0,
+            last_activity_secs: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
             accuracy: 0.0,
         }
     }
 
     pub fn average_processing_time(&self) -> Duration {
         if self.thoughts_processed > 0 {
-            self.total_processing_time / self.thoughts_processed as u32
+            Duration::from_millis(self.total_processing_time_ms / self.thoughts_processed)
         } else {
             Duration::ZERO
         }
@@ -323,17 +369,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_agent_creation() {
+    async fn test_agent_config() {
         let config = AgentConfig {
             name: "test-agent".to_string(),
-            neural_config: ruv_fann::NetworkConfig::default(),
+            neural_config: NeuralNetworkConfig::default(),
             capabilities: vec!["test".to_string()],
             max_connections: 5,
             learning_rate: 0.01,
         };
 
-        // This test would need a mock NeuralMesh
-        // For now, just test the configuration
         assert_eq!(config.name, "test-agent");
         assert_eq!(config.capabilities, vec!["test"]);
     }

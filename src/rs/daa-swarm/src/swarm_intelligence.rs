@@ -1,8 +1,8 @@
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
 /// Evolutionary parameters for swarm behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ impl SwarmIntelligence {
     pub async fn initialize_population(&self, size: usize) {
         let mut population = self.population.write().unwrap();
         population.clear();
-        
+
         for i in 0..size {
             let genome = AgentGenome {
                 id: format!("agent_{}", i),
@@ -175,7 +175,9 @@ impl SwarmIntelligence {
             OptimizationStrategy::AntColony => self.ant_colony_optimization(context).await,
             OptimizationStrategy::BeeAlgorithm => self.bee_algorithm_optimization(context).await,
             OptimizationStrategy::FireflyAlgorithm => self.firefly_optimization(context).await,
-            OptimizationStrategy::HybridAdaptive => self.hybrid_adaptive_optimization(context).await,
+            OptimizationStrategy::HybridAdaptive => {
+                self.hybrid_adaptive_optimization(context).await
+            }
         }
     }
 
@@ -183,47 +185,48 @@ impl SwarmIntelligence {
     async fn genetic_evolution(&self, context: &SwarmContext) {
         let params = self.params.read().unwrap().clone();
         let mut population = self.population.write().unwrap();
-        
+
         // Evaluate fitness
         for genome in population.iter_mut() {
             genome.fitness = self.evaluate_fitness(genome, context).await;
         }
-        
+
         // Sort by fitness
         population.sort_by(|a, b| {
             self.calculate_total_fitness(&b.fitness)
                 .partial_cmp(&self.calculate_total_fitness(&a.fitness))
                 .unwrap()
         });
-        
+
         // Create new generation
         let elite_count = (params.elitism_rate * population.len() as f64) as usize;
         let mut new_population = Vec::new();
-        
+
         // Keep elite individuals
         for i in 0..elite_count {
             new_population.push(population[i].clone());
         }
-        
+
         // Generate offspring through crossover and mutation
         while new_population.len() < params.population_size {
             let parent1 = self.tournament_selection(&population, params.selection_pressure);
             let parent2 = self.tournament_selection(&population, params.selection_pressure);
-            
+
             let mut offspring = self.crossover(&parent1, &parent2, params.crossover_rate);
             self.mutate(&mut offspring, params.mutation_rate);
-            
+
             offspring.generation += 1;
             new_population.push(offspring);
         }
-        
+
         *population = new_population;
     }
 
     /// Particle swarm optimization
     async fn particle_swarm_optimization(&self, context: &SwarmContext) {
         let mut population = self.population.write().unwrap();
-        let global_best = population.iter()
+        let global_best = population
+            .iter()
             .max_by(|a, b| {
                 self.calculate_total_fitness(&a.fitness)
                     .partial_cmp(&self.calculate_total_fitness(&b.fitness))
@@ -234,7 +237,8 @@ impl SwarmIntelligence {
         if let Some(global_best) = global_best {
             for genome in population.iter_mut() {
                 // Update velocity based on personal and global best
-                self.update_particle_velocity(genome, &global_best, context).await;
+                self.update_particle_velocity(genome, &global_best, context)
+                    .await;
                 genome.fitness = self.evaluate_fitness(genome, context).await;
             }
         }
@@ -247,12 +251,12 @@ impl SwarmIntelligence {
         }
 
         let mut population = self.population.write().unwrap();
-        
+
         for failed_id in failed_agents {
             // Find failed agent
             if let Some(failed_idx) = population.iter().position(|g| g.id == failed_id) {
                 let failed_genome = population[failed_idx].clone();
-                
+
                 // Apply recovery strategy
                 match self.fault_tolerance.recovery_strategies.first() {
                     Some(RecoveryStrategy::Replication) => {
@@ -266,7 +270,7 @@ impl SwarmIntelligence {
                             new_genome.id = failed_id;
                             population[failed_idx] = new_genome;
                         }
-                    },
+                    }
                     Some(RecoveryStrategy::Regeneration) => {
                         // Generate new random genome
                         population[failed_idx] = AgentGenome {
@@ -284,12 +288,12 @@ impl SwarmIntelligence {
                             },
                             generation: failed_genome.generation,
                         };
-                    },
+                    }
                     _ => {}
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -300,7 +304,7 @@ impl SwarmIntelligence {
         applicable_rules.sort_by_key(|(_, rule)| std::cmp::Reverse(rule.priority()));
 
         let mut population = self.population.write().unwrap();
-        
+
         for (_, rule) in applicable_rules {
             if rule.evaluate(context).await {
                 for genome in population.iter_mut() {
@@ -325,15 +329,40 @@ impl SwarmIntelligence {
         (0..size).map(|_| rand::random()).collect()
     }
 
-    async fn evaluate_fitness(&self, genome: &AgentGenome, context: &SwarmContext) -> FitnessMetrics {
+    async fn evaluate_fitness(
+        &self,
+        genome: &AgentGenome,
+        context: &SwarmContext,
+    ) -> FitnessMetrics {
         // Simulate fitness evaluation based on genome and context
         FitnessMetrics {
-            throughput: genome.behavioral_traits.get("exploration_tendency").unwrap_or(&0.5) * 1000.0,
-            latency: 100.0 / (genome.behavioral_traits.get("cooperation_level").unwrap_or(&0.5) + 0.1),
-            error_rate: 0.1 / (genome.behavioral_traits.get("learning_rate").unwrap_or(&0.5) + 0.1),
-            resource_efficiency: genome.behavioral_traits.get("risk_tolerance").unwrap_or(&0.5),
-            adaptation_score: genome.behavioral_traits.values().sum::<f64>() / genome.behavioral_traits.len() as f64,
-            cooperation_index: *genome.behavioral_traits.get("cooperation_level").unwrap_or(&0.5),
+            throughput: genome
+                .behavioral_traits
+                .get("exploration_tendency")
+                .unwrap_or(&0.5)
+                * 1000.0,
+            latency: 100.0
+                / (genome
+                    .behavioral_traits
+                    .get("cooperation_level")
+                    .unwrap_or(&0.5)
+                    + 0.1),
+            error_rate: 0.1
+                / (genome
+                    .behavioral_traits
+                    .get("learning_rate")
+                    .unwrap_or(&0.5)
+                    + 0.1),
+            resource_efficiency: *genome
+                .behavioral_traits
+                .get("risk_tolerance")
+                .unwrap_or(&0.5),
+            adaptation_score: genome.behavioral_traits.values().sum::<f64>()
+                / genome.behavioral_traits.len() as f64,
+            cooperation_index: *genome
+                .behavioral_traits
+                .get("cooperation_level")
+                .unwrap_or(&0.5),
         }
     }
 
@@ -349,13 +378,14 @@ impl SwarmIntelligence {
     fn tournament_selection(&self, population: &[AgentGenome], pressure: f64) -> AgentGenome {
         let tournament_size = (pressure * 2.0) as usize + 1;
         let mut tournament = Vec::new();
-        
+
         for _ in 0..tournament_size {
             let idx = rand::random::<usize>() % population.len();
             tournament.push(&population[idx]);
         }
-        
-        tournament.into_iter()
+
+        tournament
+            .into_iter()
             .max_by(|a, b| {
                 self.calculate_total_fitness(&a.fitness)
                     .partial_cmp(&self.calculate_total_fitness(&b.fitness))
@@ -367,7 +397,7 @@ impl SwarmIntelligence {
 
     fn crossover(&self, parent1: &AgentGenome, parent2: &AgentGenome, rate: f64) -> AgentGenome {
         let mut offspring = parent1.clone();
-        
+
         if rand::random::<f64>() < rate {
             // Crossover behavioral traits
             for (key, value) in parent2.behavioral_traits.iter() {
@@ -375,7 +405,7 @@ impl SwarmIntelligence {
                     offspring.behavioral_traits.insert(key.clone(), *value);
                 }
             }
-            
+
             // Crossover weights
             for i in 0..offspring.communication_weights.len() {
                 if rand::random::<f64>() < 0.5 {
@@ -383,7 +413,7 @@ impl SwarmIntelligence {
                 }
             }
         }
-        
+
         offspring
     }
 
@@ -394,7 +424,7 @@ impl SwarmIntelligence {
                 *value = (*value + rand::random::<f64>() * 0.2 - 0.1).clamp(0.0, 1.0);
             }
         }
-        
+
         // Mutate weights
         for weight in &mut genome.communication_weights {
             if rand::random::<f64>() < rate {
@@ -403,15 +433,20 @@ impl SwarmIntelligence {
         }
     }
 
-    async fn update_particle_velocity(&self, particle: &mut AgentGenome, global_best: &AgentGenome, context: &SwarmContext) {
+    async fn update_particle_velocity(
+        &self,
+        particle: &mut AgentGenome,
+        global_best: &AgentGenome,
+        context: &SwarmContext,
+    ) {
         let inertia = 0.7;
         let cognitive = 1.5;
         let social = 1.5;
-        
+
         // Update behavioral traits as particle positions
         for (key, value) in particle.behavioral_traits.iter_mut() {
             if let Some(global_value) = global_best.behavioral_traits.get(key) {
-                let velocity = inertia * (*value - 0.5) 
+                let velocity = inertia * (*value - 0.5)
                     + cognitive * rand::random::<f64>() * (*value - 0.5)
                     + social * rand::random::<f64>() * (*global_value - *value);
                 *value = (*value + velocity * 0.1).clamp(0.0, 1.0);
@@ -435,7 +470,7 @@ impl SwarmIntelligence {
     async fn hybrid_adaptive_optimization(&self, context: &SwarmContext) {
         // Adaptively switch between algorithms based on performance
         let fitness_trend = self.analyze_fitness_trend();
-        
+
         if fitness_trend < 0.0 {
             // Switch to more explorative algorithm
             self.particle_swarm_optimization(context).await;
@@ -450,10 +485,10 @@ impl SwarmIntelligence {
         if history.len() < 2 {
             return 0.0;
         }
-        
+
         let recent = &history[history.len() - 1];
         let previous = &history[history.len() - 2];
-        
+
         self.calculate_total_fitness(recent) - self.calculate_total_fitness(previous)
     }
 }

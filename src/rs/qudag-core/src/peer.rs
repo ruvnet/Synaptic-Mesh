@@ -1,15 +1,15 @@
 //! Peer management and discovery for QuDAG network
 
+use libp2p::{Multiaddr, PeerId};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use libp2p::{PeerId, Multiaddr};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{QuantumFingerprint, QuDAGError, Result};
+use crate::{QuDAGError, QuantumFingerprint, Result};
 
 /// Peer information in the QuDAG network
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub addresses: Vec<Multiaddr>,
@@ -32,7 +32,10 @@ impl PeerInfo {
             agent_version: "qudag/0.4.3".to_string(),
             quantum_fingerprint: None,
             dark_domain: None,
-            last_seen: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            last_seen: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             reputation: 1.0,
             capabilities: PeerCapabilities::default(),
         }
@@ -40,12 +43,18 @@ impl PeerInfo {
 
     /// Update last seen timestamp
     pub fn update_last_seen(&mut self) {
-        self.last_seen = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        self.last_seen = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
     }
 
     /// Check if peer is recently active
     pub fn is_active(&self, max_age_secs: u64) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         now.saturating_sub(self.last_seen) <= max_age_secs
     }
 
@@ -136,14 +145,15 @@ impl PeerManager {
     /// Add or update a peer
     pub fn add_peer(&mut self, mut peer_info: PeerInfo) {
         peer_info.update_last_seen();
-        
+
         // Register .dark domain if available
         if let Some(ref dark_domain) = peer_info.dark_domain {
-            self.dark_domains.insert(dark_domain.clone(), peer_info.peer_id);
+            self.dark_domains
+                .insert(dark_domain.clone(), peer_info.peer_id);
         }
-        
+
         self.peers.insert(peer_info.peer_id, peer_info);
-        
+
         // Cleanup if necessary
         if self.peers.len() > self.max_peers {
             self.cleanup_peers();
@@ -170,7 +180,8 @@ impl PeerManager {
 
     /// Get a peer by .dark domain
     pub fn get_peer_by_dark_domain(&self, dark_domain: &str) -> Option<&PeerInfo> {
-        self.dark_domains.get(dark_domain)
+        self.dark_domains
+            .get(dark_domain)
             .and_then(|peer_id| self.peers.get(peer_id))
     }
 
@@ -181,7 +192,8 @@ impl PeerManager {
 
     /// Get peers with specific capability
     pub fn peers_with_capability(&self, capability: &str) -> Vec<PeerId> {
-        self.peers.iter()
+        self.peers
+            .iter()
             .filter(|(_, peer)| peer.supports_capability(capability))
             .map(|(peer_id, _)| *peer_id)
             .collect()
@@ -189,7 +201,8 @@ impl PeerManager {
 
     /// Get high-reputation peers
     pub fn trusted_peers(&self) -> Vec<PeerId> {
-        self.peers.iter()
+        self.peers
+            .iter()
             .filter(|(_, peer)| peer.reputation >= self.reputation_threshold * 2.0)
             .map(|(peer_id, _)| *peer_id)
             .collect()
@@ -209,7 +222,9 @@ impl PeerManager {
 
     /// Get network statistics
     pub fn get_stats(&self) -> PeerStats {
-        let active_peers = self.peers.values()
+        let active_peers = self
+            .peers
+            .values()
             .filter(|p| p.is_active(300)) // Active in last 5 minutes
             .count();
 
@@ -219,14 +234,26 @@ impl PeerManager {
             self.peers.values().map(|p| p.reputation).sum::<f64>() / self.peers.len() as f64
         };
 
-        let capabilities_count = self.peers.values()
-            .fold(HashMap::new(), |mut acc, peer| {
-                if peer.capabilities.dag_sync { *acc.entry("dag_sync").or_insert(0) += 1; }
-                if peer.capabilities.consensus { *acc.entry("consensus").or_insert(0) += 1; }
-                if peer.capabilities.quantum_crypto { *acc.entry("quantum_crypto").or_insert(0) += 1; }
-                if peer.capabilities.relay { *acc.entry("relay").or_insert(0) += 1; }
-                if peer.capabilities.storage { *acc.entry("storage").or_insert(0) += 1; }
-                if peer.capabilities.compute { *acc.entry("compute").or_insert(0) += 1; }
+        let capabilities_count: HashMap<String, usize> =
+            self.peers.values().fold(HashMap::new(), |mut acc, peer| {
+                if peer.capabilities.dag_sync {
+                    *acc.entry("dag_sync".to_string()).or_insert(0) += 1;
+                }
+                if peer.capabilities.consensus {
+                    *acc.entry("consensus".to_string()).or_insert(0) += 1;
+                }
+                if peer.capabilities.quantum_crypto {
+                    *acc.entry("quantum_crypto".to_string()).or_insert(0) += 1;
+                }
+                if peer.capabilities.relay {
+                    *acc.entry("relay".to_string()).or_insert(0) += 1;
+                }
+                if peer.capabilities.storage {
+                    *acc.entry("storage".to_string()).or_insert(0) += 1;
+                }
+                if peer.capabilities.compute {
+                    *acc.entry("compute".to_string()).or_insert(0) += 1;
+                }
                 acc
             });
 
@@ -249,10 +276,10 @@ impl PeerManager {
         let max_age = 3600; // 1 hour
         let min_reputation = self.reputation_threshold;
 
-        let to_remove: Vec<PeerId> = self.peers.iter()
-            .filter(|(_, peer)| {
-                !peer.is_active(max_age) || peer.reputation < min_reputation
-            })
+        let to_remove: Vec<PeerId> = self
+            .peers
+            .iter()
+            .filter(|(_, peer)| !peer.is_active(max_age) || peer.reputation < min_reputation)
             .map(|(peer_id, _)| *peer_id)
             .collect();
 
@@ -261,20 +288,26 @@ impl PeerManager {
         }
 
         self.last_cleanup = now;
-        
-        tracing::debug!("Peer cleanup completed, {} peers remaining", self.peers.len());
+
+        tracing::debug!(
+            "Peer cleanup completed, {} peers remaining",
+            self.peers.len()
+        );
     }
 
     /// Find best peers for a specific task
     pub fn find_best_peers(&self, capability: &str, count: usize) -> Vec<PeerId> {
-        let mut candidates: Vec<_> = self.peers.iter()
+        let mut candidates: Vec<_> = self
+            .peers
+            .iter()
             .filter(|(_, peer)| peer.supports_capability(capability) && peer.is_active(300))
             .collect();
 
         // Sort by reputation (descending)
         candidates.sort_by(|a, b| b.1.reputation.partial_cmp(&a.1.reputation).unwrap());
 
-        candidates.into_iter()
+        candidates
+            .into_iter()
             .take(count)
             .map(|(peer_id, _)| *peer_id)
             .collect()
@@ -348,7 +381,7 @@ mod tests {
     fn test_peer_info_creation() {
         let peer_id = PeerId::random();
         let peer_info = PeerInfo::new(peer_id);
-        
+
         assert_eq!(peer_info.peer_id, peer_id);
         assert_eq!(peer_info.reputation, 1.0);
         assert!(peer_info.is_active(3600));
@@ -359,14 +392,14 @@ mod tests {
         let mut manager = PeerManager::new(10);
         let peer_id = PeerId::random();
         let peer_info = PeerInfo::new(peer_id);
-        
+
         assert_eq!(manager.peer_count(), 0);
-        
+
         manager.add_peer(peer_info);
         assert_eq!(manager.peer_count(), 1);
-        
+
         assert!(manager.get_peer(&peer_id).is_some());
-        
+
         manager.remove_peer(&peer_id);
         assert_eq!(manager.peer_count(), 0);
     }
@@ -376,13 +409,13 @@ mod tests {
         let mut manager = PeerManager::new(10);
         let peer_id = PeerId::random();
         let peer_info = PeerInfo::new(peer_id);
-        
+
         manager.add_peer(peer_info);
-        
+
         // Test reputation adjustment
         manager.update_reputation(&peer_id, 1.0);
         assert_eq!(manager.get_peer(&peer_id).unwrap().reputation, 2.0);
-        
+
         manager.update_reputation(&peer_id, -3.0);
         assert_eq!(manager.get_peer(&peer_id).unwrap().reputation, 0.0); // Clamped to 0
     }
@@ -391,11 +424,11 @@ mod tests {
     fn test_capabilities() {
         let peer_id = PeerId::random();
         let mut peer_info = PeerInfo::new(peer_id);
-        
+
         assert!(peer_info.supports_capability("dag_sync"));
         assert!(peer_info.supports_capability("consensus"));
         assert!(!peer_info.supports_capability("unknown"));
-        
+
         peer_info.capabilities.relay = true;
         assert!(peer_info.supports_capability("relay"));
     }
@@ -406,7 +439,7 @@ mod tests {
             "/ip4/127.0.0.1/tcp/8000".parse().unwrap(),
             "/ip4/127.0.0.1/tcp/8001".parse().unwrap(),
         ];
-        
+
         let discovery = PeerDiscovery::new(bootstrap_peers.clone());
         assert_eq!(discovery.bootstrap_peers(), &bootstrap_peers);
     }

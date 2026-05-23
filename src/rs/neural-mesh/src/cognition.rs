@@ -1,11 +1,11 @@
 //! Cognition engine for distributed neural processing
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 
 use crate::{NeuralMeshError, Result};
 
@@ -23,7 +23,7 @@ impl CognitionEngine {
     /// Create a new cognition engine
     pub async fn new(config: CognitionConfig) -> Result<Self> {
         let (processing_tx, processing_rx) = mpsc::unbounded_channel();
-        
+
         let engine = Self {
             config: config.clone(),
             thought_processors: Arc::new(RwLock::new(HashMap::new())),
@@ -60,10 +60,10 @@ impl CognitionEngine {
     pub async fn process_distributed(
         &self,
         task: CognitionTask,
-        assignment: TaskAssignment
+        assignment: TaskAssignment,
     ) -> Result<CognitionResult> {
         let start_time = Instant::now();
-        
+
         // Update stats
         {
             let mut stats = self.stats.write().await;
@@ -105,23 +105,23 @@ impl CognitionEngine {
     /// Initialize default thought processors
     async fn init_default_processors(&self) -> Result<()> {
         let mut processors = self.thought_processors.write().await;
-        
+
         // Pattern recognition processor
         processors.insert(
             "pattern_recognition".to_string(),
-            Arc::new(PatternRecognitionProcessor::new())
+            Arc::new(PatternRecognitionProcessor::new()),
         );
-        
+
         // Memory formation processor
         processors.insert(
             "memory_formation".to_string(),
-            Arc::new(MemoryFormationProcessor::new())
+            Arc::new(MemoryFormationProcessor::new()),
         );
-        
+
         // Decision making processor
         processors.insert(
             "decision_making".to_string(),
-            Arc::new(DecisionMakingProcessor::new())
+            Arc::new(DecisionMakingProcessor::new()),
         );
 
         Ok(())
@@ -144,24 +144,31 @@ impl CognitionEngine {
     /// Merge partial results from multiple agents
     async fn merge_results(&self, partials: Vec<PartialResult>) -> Result<CognitionResult> {
         if partials.is_empty() {
-            return Err(NeuralMeshError::InvalidInput("No partial results to merge".to_string()));
+            return Err(NeuralMeshError::InvalidInput(
+                "No partial results to merge".to_string(),
+            ));
         }
 
         // Weight-average the results based on confidence
         let total_confidence: f64 = partials.iter().map(|p| p.confidence).sum();
-        
+        let num_partials = partials.len();
+
         // Create merged thought pattern
         let merged_pattern = ThoughtPattern::merge(
             partials.iter().map(|p| &p.output).collect(),
-            partials.iter().map(|p| p.confidence / total_confidence).collect()
+            partials
+                .iter()
+                .map(|p| p.confidence / total_confidence)
+                .collect(),
         )?;
 
         Ok(CognitionResult {
             output: merged_pattern,
-            agent_contributions: partials.into_iter()
+            agent_contributions: partials
+                .into_iter()
                 .map(|p| (p.agent_id, p.confidence))
                 .collect(),
-            total_confidence: total_confidence / partials.len() as f64,
+            total_confidence: total_confidence / num_partials as f64,
             consensus_level: 0.9, // Would calculate actual consensus
         })
     }
@@ -290,7 +297,8 @@ pub struct ThoughtPattern {
     pub features: Vec<f64>,
     pub connections: Vec<Connection>,
     pub context: HashMap<String, serde_json::Value>,
-    pub timestamp: Instant,
+    /// Unix timestamp in seconds (replaces Instant which is not serializable)
+    pub timestamp: u64,
 }
 
 impl ThoughtPattern {
@@ -302,7 +310,10 @@ impl ThoughtPattern {
             features: vec![0.0; 100], // Default feature vector
             connections: Vec::new(),
             context: HashMap::new(),
-            timestamp: Instant::now(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
         }
     }
 
@@ -312,21 +323,29 @@ impl ThoughtPattern {
     }
 
     /// Create from neural network output
-    pub fn from_output_vector(output: Vec<f32>, context: HashMap<String, serde_json::Value>) -> Result<Self> {
+    pub fn from_output_vector(
+        output: Vec<f32>,
+        context: HashMap<String, serde_json::Value>,
+    ) -> Result<Self> {
         Ok(Self {
             id: Uuid::new_v4(),
             complexity: output.len() as f64,
             features: output.into_iter().map(|f| f as f64).collect(),
             connections: Vec::new(),
             context,
-            timestamp: Instant::now(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
         })
     }
 
     /// Merge multiple thought patterns
     pub fn merge(patterns: Vec<&ThoughtPattern>, weights: Vec<f64>) -> Result<Self> {
         if patterns.is_empty() || patterns.len() != weights.len() {
-            return Err(NeuralMeshError::InvalidInput("Invalid merge parameters".to_string()));
+            return Err(NeuralMeshError::InvalidInput(
+                "Invalid merge parameters".to_string(),
+            ));
         }
 
         let feature_len = patterns[0].features.len();
@@ -344,7 +363,10 @@ impl ThoughtPattern {
             features: merged_features,
             connections: Vec::new(), // Would merge connections
             context: HashMap::new(),
-            timestamp: Instant::now(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
         })
     }
 }
@@ -413,11 +435,13 @@ impl CognitionStats {
         if self.response_times.len() > 1000 {
             self.response_times.remove(0);
         }
-        self.avg_response_time = self.response_times.iter().sum::<f64>() / self.response_times.len() as f64;
+        self.avg_response_time =
+            self.response_times.iter().sum::<f64>() / self.response_times.len() as f64;
     }
 }
 
 /// Memory store for thought patterns
+#[derive(Debug)]
 struct MemoryStore {
     capacity: usize,
     memories: HashMap<Uuid, CognitionResult>,
@@ -542,10 +566,10 @@ mod tests {
     fn test_thought_pattern_merge() {
         let pattern1 = ThoughtPattern::new(0.5);
         let pattern2 = ThoughtPattern::new(0.7);
-        
+
         let patterns = vec![&pattern1, &pattern2];
         let weights = vec![0.6, 0.4];
-        
+
         let merged = ThoughtPattern::merge(patterns, weights);
         assert!(merged.is_ok());
     }

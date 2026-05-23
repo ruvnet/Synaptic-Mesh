@@ -1,12 +1,11 @@
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, RwLock};
 
 use crate::swarm_intelligence::{
-    SwarmIntelligence, OptimizationStrategy, FitnessMetrics, 
-    AgentGenome, SwarmContext, EvolutionaryParams
+    AgentGenome, EvolutionaryParams, FitnessMetrics, OptimizationStrategy, SwarmContext,
+    SwarmIntelligence,
 };
 
 /// Mesh topology for evolutionary optimization
@@ -154,12 +153,14 @@ impl EvolutionaryMesh {
     /// Initialize mesh with nodes
     pub async fn initialize(&self, num_nodes: usize) {
         // Initialize swarm population
-        self.swarm_intelligence.initialize_population(num_nodes).await;
-        
+        self.swarm_intelligence
+            .initialize_population(num_nodes)
+            .await;
+
         // Create mesh nodes
         let mut nodes = self.nodes.write().unwrap();
         nodes.clear();
-        
+
         for i in 0..num_nodes {
             let node = MeshNode {
                 id: format!("node_{}", i),
@@ -191,7 +192,7 @@ impl EvolutionaryMesh {
             };
             nodes.insert(node.id.clone(), node);
         }
-        
+
         // Establish connections based on topology
         self.establish_topology().await;
     }
@@ -200,7 +201,7 @@ impl EvolutionaryMesh {
     pub async fn establish_topology(&self) {
         let mut nodes = self.nodes.write().unwrap();
         let node_ids: Vec<String> = nodes.keys().cloned().collect();
-        
+
         match self.topology {
             MeshTopology::FullyConnected => {
                 for i in 0..node_ids.len() {
@@ -210,14 +211,14 @@ impl EvolutionaryMesh {
                         }
                     }
                 }
-            },
+            }
             MeshTopology::Ring => {
                 for i in 0..node_ids.len() {
                     let next = (i + 1) % node_ids.len();
                     self.create_connection(&mut nodes, &node_ids[i], &node_ids[next]);
                     self.create_connection(&mut nodes, &node_ids[next], &node_ids[i]);
                 }
-            },
+            }
             MeshTopology::Star => {
                 if !node_ids.is_empty() {
                     let hub = &node_ids[0];
@@ -226,19 +227,19 @@ impl EvolutionaryMesh {
                         self.create_connection(&mut nodes, &node_ids[i], hub);
                     }
                 }
-            },
+            }
             MeshTopology::Grid => {
                 let size = (node_ids.len() as f64).sqrt() as usize;
                 for i in 0..node_ids.len() {
                     let row = i / size;
                     let col = i % size;
-                    
+
                     // Connect to right neighbor
                     if col < size - 1 {
                         let right = i + 1;
                         self.create_connection(&mut nodes, &node_ids[i], &node_ids[right]);
                     }
-                    
+
                     // Connect to bottom neighbor
                     if row < size - 1 {
                         let bottom = i + size;
@@ -247,14 +248,14 @@ impl EvolutionaryMesh {
                         }
                     }
                 }
-            },
+            }
             MeshTopology::SmallWorld => {
                 // Start with ring topology
                 for i in 0..node_ids.len() {
                     let next = (i + 1) % node_ids.len();
                     self.create_connection(&mut nodes, &node_ids[i], &node_ids[next]);
                 }
-                
+
                 // Add random shortcuts
                 let num_shortcuts = node_ids.len() / 10;
                 for _ in 0..num_shortcuts {
@@ -264,7 +265,7 @@ impl EvolutionaryMesh {
                         self.create_connection(&mut nodes, &node_ids[i], &node_ids[j]);
                     }
                 }
-            },
+            }
             MeshTopology::ScaleFree => {
                 // Preferential attachment (Barabási-Albert model)
                 if node_ids.len() > 2 {
@@ -276,17 +277,18 @@ impl EvolutionaryMesh {
                             }
                         }
                     }
-                    
+
                     // Add remaining nodes with preferential attachment
                     for i in 3..node_ids.len() {
                         let num_connections = 2.min(i);
                         for _ in 0..num_connections {
-                            let target = self.preferential_attachment_selection(&nodes, &node_ids[..i]);
+                            let target =
+                                self.preferential_attachment_selection(&nodes, &node_ids[..i]);
                             self.create_connection(&mut nodes, &node_ids[i], &target);
                         }
                     }
                 }
-            },
+            }
             MeshTopology::Adaptive => {
                 // Start with sparse random connections
                 for i in 0..node_ids.len() {
@@ -298,7 +300,7 @@ impl EvolutionaryMesh {
                         }
                     }
                 }
-            },
+            }
         }
     }
 
@@ -316,16 +318,16 @@ impl EvolutionaryMesh {
                 .unwrap()
                 .as_secs(),
         };
-        
+
         // Evolve using swarm intelligence
         self.swarm_intelligence.evolve(&swarm_context).await;
-        
+
         // Apply adaptations to mesh nodes
         self.apply_adaptations(context).await;
-        
+
         // Update mesh metrics
         self.update_metrics().await;
-        
+
         // Reorganize topology if adaptive
         if matches!(self.topology, MeshTopology::Adaptive) {
             self.adapt_topology(context).await;
@@ -335,17 +337,18 @@ impl EvolutionaryMesh {
     /// Apply adaptations to mesh nodes
     async fn apply_adaptations(&self, context: &MeshContext) {
         let mut nodes = self.nodes.write().unwrap();
-        
+
         for node in nodes.values_mut() {
             // Apply adaptation strategies
             self.adaptation_engine.adapt_node(node, context).await;
-            
+
             // Update performance history
             if node.performance_history.len() >= 100 {
                 node.performance_history.pop_front();
             }
-            node.performance_history.push_back(node.genome.fitness.clone());
-            
+            node.performance_history
+                .push_back(node.genome.fitness.clone());
+
             // Update adaptation state
             self.update_adaptation_state(node, context);
         }
@@ -354,21 +357,27 @@ impl EvolutionaryMesh {
     /// Update adaptation state based on performance
     fn update_adaptation_state(&self, node: &mut MeshNode, context: &MeshContext) {
         // Calculate performance trend
-        let recent_fitness = node.performance_history.iter()
+        let recent_fitness = node
+            .performance_history
+            .iter()
             .rev()
             .take(10)
             .map(|f| self.calculate_fitness_score(f))
-            .sum::<f64>() / 10.0.min(node.performance_history.len() as f64);
-        
-        let older_fitness = node.performance_history.iter()
+            .sum::<f64>()
+            / (10.0_f64).min(node.performance_history.len() as f64);
+
+        let older_fitness = node
+            .performance_history
+            .iter()
             .rev()
             .skip(10)
             .take(10)
             .map(|f| self.calculate_fitness_score(f))
-            .sum::<f64>() / 10.0.min(node.performance_history.len().saturating_sub(10) as f64);
-        
+            .sum::<f64>()
+            / (10.0_f64).min(node.performance_history.len().saturating_sub(10) as f64);
+
         let fitness_trend = recent_fitness - older_fitness;
-        
+
         // Adjust learning rate based on performance
         if fitness_trend > 0.0 {
             node.adaptation_state.learning_rate *= 0.95; // Decrease learning rate when improving
@@ -376,22 +385,32 @@ impl EvolutionaryMesh {
             node.adaptation_state.learning_rate *= 1.05; // Increase learning rate when stagnating
         }
         node.adaptation_state.learning_rate = node.adaptation_state.learning_rate.clamp(0.01, 0.5);
-        
+
         // Adjust exploration probability
         if fitness_trend < -0.1 {
             node.adaptation_state.exploration_probability *= 1.1; // Explore more when performance drops
         } else {
             node.adaptation_state.exploration_probability *= 0.95; // Exploit more when performing well
         }
-        node.adaptation_state.exploration_probability = 
-            node.adaptation_state.exploration_probability.clamp(0.05, 0.5);
-        
+        node.adaptation_state.exploration_probability = node
+            .adaptation_state
+            .exploration_probability
+            .clamp(0.05, 0.5);
+
         // Update specialization based on task requirements
         if context.task_requirements.computational_intensity > 0.7 {
-            *node.adaptation_state.specialization.entry("computation".to_string()).or_insert(0.0) += 0.1;
+            *node
+                .adaptation_state
+                .specialization
+                .entry("computation".to_string())
+                .or_insert(0.0) += 0.1;
         }
         if context.task_requirements.communication_intensity > 0.7 {
-            *node.adaptation_state.specialization.entry("communication".to_string()).or_insert(0.0) += 0.1;
+            *node
+                .adaptation_state
+                .specialization
+                .entry("communication".to_string())
+                .or_insert(0.0) += 0.1;
         }
     }
 
@@ -399,24 +418,26 @@ impl EvolutionaryMesh {
     async fn adapt_topology(&self, context: &MeshContext) {
         let mut nodes = self.nodes.write().unwrap();
         let node_ids: Vec<String> = nodes.keys().cloned().collect();
-        
+
         // Remove underperforming connections
         for node_id in &node_ids {
             if let Some(node) = nodes.get_mut(node_id) {
                 node.connections.retain(|conn| {
-                    conn.reliability > 0.5 && conn.latency < context.task_requirements.latency_sensitivity * 1000.0
+                    conn.reliability > 0.5
+                        && conn.latency < context.task_requirements.latency_sensitivity * 1000.0
                 });
             }
         }
-        
+
         // Add new connections between high-performing nodes
-        let high_performers: Vec<String> = nodes.values()
+        let high_performers: Vec<String> = nodes
+            .values()
             .filter(|n| self.calculate_fitness_score(&n.genome.fitness) > 0.8)
             .map(|n| n.id.clone())
             .collect();
-        
+
         for i in 0..high_performers.len() {
-            for j in i+1..high_performers.len() {
+            for j in i + 1..high_performers.len() {
                 if !self.has_connection(&nodes, &high_performers[i], &high_performers[j]) {
                     self.create_connection(&mut nodes, &high_performers[i], &high_performers[j]);
                 }
@@ -428,36 +449,38 @@ impl EvolutionaryMesh {
     async fn update_metrics(&self) {
         let nodes = self.nodes.read().unwrap();
         let mut metrics = self.mesh_metrics.write().unwrap();
-        
+
         metrics.total_nodes = nodes.len();
-        metrics.active_connections = nodes.values()
-            .map(|n| n.connections.len())
-            .sum::<usize>() / 2;
-        
+        metrics.active_connections = nodes.values().map(|n| n.connections.len()).sum::<usize>() / 2;
+
         // Calculate average fitness
-        let total_fitness: f64 = nodes.values()
+        let total_fitness: f64 = nodes
+            .values()
             .map(|n| self.calculate_fitness_score(&n.genome.fitness))
             .sum();
         metrics.average_fitness = total_fitness / nodes.len().max(1) as f64;
-        
+
         // Calculate diversity index
         metrics.diversity_index = self.calculate_diversity(&nodes);
-        
+
         // Calculate convergence rate (simplified)
         metrics.convergence_rate = 1.0 - metrics.diversity_index;
-        
+
         // Calculate adaptation efficiency
-        let adapted_nodes = nodes.values()
+        let adapted_nodes = nodes
+            .values()
             .filter(|n| n.adaptation_state.learning_rate < 0.1)
             .count();
         metrics.adaptation_efficiency = adapted_nodes as f64 / nodes.len().max(1) as f64;
-        
+
         // Calculate communication overhead
-        let total_bandwidth: f64 = nodes.values()
+        let total_bandwidth: f64 = nodes
+            .values()
             .flat_map(|n| &n.connections)
             .map(|c| c.bandwidth)
             .sum();
-        metrics.communication_overhead = total_bandwidth / (nodes.len().max(1) * nodes.len().max(1)) as f64;
+        metrics.communication_overhead =
+            total_bandwidth / (nodes.len().max(1) * nodes.len().max(1)) as f64;
     }
 
     /// Helper functions
@@ -476,21 +499,32 @@ impl EvolutionaryMesh {
     }
 
     fn has_connection(&self, nodes: &HashMap<String, MeshNode>, from: &str, to: &str) -> bool {
-        nodes.get(from)
+        nodes
+            .get(from)
             .map(|n| n.connections.iter().any(|c| c.to_id == to))
             .unwrap_or(false)
     }
 
-    fn preferential_attachment_selection(&self, nodes: &HashMap<String, MeshNode>, candidates: &[String]) -> String {
-        let degrees: Vec<(String, usize)> = candidates.iter()
-            .map(|id| (id.clone(), nodes.get(id).map(|n| n.connections.len()).unwrap_or(0)))
+    fn preferential_attachment_selection(
+        &self,
+        nodes: &HashMap<String, MeshNode>,
+        candidates: &[String],
+    ) -> String {
+        let degrees: Vec<(String, usize)> = candidates
+            .iter()
+            .map(|id| {
+                (
+                    id.clone(),
+                    nodes.get(id).map(|n| n.connections.len()).unwrap_or(0),
+                )
+            })
             .collect();
-        
+
         let total_degree: usize = degrees.iter().map(|(_, d)| d).sum();
         if total_degree == 0 {
             return candidates[0].clone();
         }
-        
+
         let mut random_value = rand::random::<f64>() * total_degree as f64;
         for (id, degree) in degrees {
             random_value -= degree as f64;
@@ -498,7 +532,7 @@ impl EvolutionaryMesh {
                 return id;
             }
         }
-        
+
         candidates.last().unwrap().clone()
     }
 
@@ -515,28 +549,28 @@ impl EvolutionaryMesh {
         if nodes.len() < 2 {
             return 1.0;
         }
-        
+
         let mut trait_variances = HashMap::new();
-        
+
         // Calculate mean for each trait
         for node in nodes.values() {
             for (trait_name, trait_value) in &node.genome.behavioral_traits {
-                trait_variances.entry(trait_name.clone())
+                trait_variances
+                    .entry(trait_name.clone())
                     .or_insert(Vec::new())
                     .push(*trait_value);
             }
         }
-        
+
         // Calculate variance for each trait
         let mut total_variance = 0.0;
         for values in trait_variances.values() {
             let mean = values.iter().sum::<f64>() / values.len() as f64;
-            let variance = values.iter()
-                .map(|v| (v - mean).powi(2))
-                .sum::<f64>() / values.len() as f64;
+            let variance =
+                values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
             total_variance += variance;
         }
-        
+
         total_variance / trait_variances.len().max(1) as f64
     }
 
@@ -577,12 +611,14 @@ impl AdaptationEngine {
     }
 
     pub async fn adapt_node(&self, node: &mut MeshNode, context: &MeshContext) {
-        let mut applicable_strategies: Vec<_> = self.strategies.values()
+        let mut applicable_strategies: Vec<_> = self
+            .strategies
+            .values()
             .filter(|s| s.applicable(node))
             .collect();
-        
+
         applicable_strategies.sort_by_key(|s| std::cmp::Reverse(s.priority()));
-        
+
         for strategy in applicable_strategies {
             if let Err(e) = strategy.adapt(node, context).await {
                 tracing::error!("Adaptation strategy failed: {}", e);
@@ -597,7 +633,7 @@ impl AdaptationEngine {
     pub fn record_learning_event(&self, event: LearningEvent) {
         let mut history = self.learning_history.write().unwrap();
         history.push(event);
-        
+
         // Keep only recent history
         if history.len() > 10000 {
             history.drain(0..1000);

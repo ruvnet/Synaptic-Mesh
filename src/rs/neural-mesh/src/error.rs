@@ -12,7 +12,7 @@ pub enum NeuralMeshError {
     Network(String),
 
     #[error("Neural network error: {0}")]
-    Neural(#[from] ruv_fann::errors::FannError),
+    Neural(#[from] ruv_fann::errors::RuvFannError),
 
     #[error("Communication error: {0}")]
     Communication(String),

@@ -1,6 +1,6 @@
 [package]
 name = "daa-swarm"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["DAA Team <team@daa.hq>"]
 description = "Dynamic Agent Architecture - Swarm intelligence and autonomous coordination"
@@ -13,13 +13,11 @@ categories = ["algorithms", "concurrency", "simulation"]
 # Core QuDAG integration
 qudag-core = { path = "../qudag-core" }
 
-# Neural mesh integration
-neural-mesh = { path = "../neural-mesh" }
-
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
 futures = "0.3"
 async-trait = "0.1"
+async-recursion = "1.0"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -74,14 +72,3 @@ fault-tolerance = []
 simulation = []
 wasm = ["wasm-bindgen", "js-sys", "web-sys"]
 
-[[example]]
-name = "basic_swarm"
-path = "examples/basic_swarm.rs"
-
-[[example]]
-name = "fault_tolerance"
-path = "examples/fault_tolerance.rs"
-
-[[bench]]
-name = "swarm_benchmarks"
-harness = false

@@ -1,5 +1,5 @@
 //! Synaptic Neural Mesh CLI
-//! 
+//!
 //! Command-line interface for managing and interacting with the
 //! Synaptic Neural Mesh distributed cognition system.
 
@@ -10,17 +10,18 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::*;
 use tokio::signal;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use qudag_core::{QuDAGNode, NodeConfig};
-use neural_mesh::{SynapticNeuralMesh, MeshConfig, AgentConfig};
-use daa_swarm::{DynamicAgentArchitecture, ArchitectureConfig, AgentType, AgentCapabilities};
+use daa_swarm::{AgentCapabilities, AgentType, ArchitectureConfig, DynamicAgentArchitecture};
+use neural_mesh::{AgentConfig, MeshConfig, SynapticNeuralMesh};
+use qudag_core::{NodeConfig, QuDAGNode};
 
 mod p2p_integration;
+#[cfg(target_arch = "wasm32")]
 mod wasm_bridge;
 
-use p2p_integration::{P2PIntegration, P2PIntegrationConfig, NeuralMessage, MessageType};
+use p2p_integration::{MessageType, NeuralMessage, P2PIntegration, P2PIntegrationConfig};
 
 #[derive(Parser)]
 #[command(name = "synaptic-mesh")]
@@ -55,132 +56,132 @@ enum Commands {
         /// Node name
         #[arg(short, long)]
         name: Option<String>,
-        
+
         /// Listen address
         #[arg(short, long, default_value = "0.0.0.0:9000")]
         listen: String,
-        
+
         /// Bootstrap peers
         #[arg(short, long)]
         peers: Vec<String>,
-        
+
         /// Enable quantum-resistant mode
         #[arg(short, long)]
         quantum: bool,
     },
-    
+
     /// Start the neural mesh node
     Start {
         /// Run in daemon mode
         #[arg(short, long)]
         daemon: bool,
-        
+
         /// Configuration file override
         #[arg(short, long)]
         config_override: Option<PathBuf>,
     },
-    
+
     /// Stop the neural mesh node
     Stop,
-    
+
     /// Show node status and statistics
     Status {
         /// Output format
         #[arg(short, long, default_value = "human")]
         format: OutputFormat,
-        
+
         /// Watch mode (continuous updates)
         #[arg(short, long)]
         watch: bool,
     },
-    
+
     /// Manage neural agents
     Agent {
         #[command(subcommand)]
         action: AgentCommands,
     },
-    
+
     /// Manage DAA swarm
     Swarm {
         #[command(subcommand)]
         action: SwarmCommands,
     },
-    
+
     /// Submit a thought/task to the mesh
     Think {
         /// Input prompt or task description
         prompt: String,
-        
+
         /// Task type
         #[arg(short, long, default_value = "general")]
         task_type: String,
-        
+
         /// Priority level
         #[arg(short, long, default_value = "medium")]
         priority: String,
-        
+
         /// Timeout in seconds
         #[arg(short, long, default_value = "30")]
         timeout: u64,
     },
-    
+
     /// Network operations
     Network {
         #[command(subcommand)]
         action: NetworkCommands,
     },
-    
+
     /// P2P networking operations
     P2P {
         #[command(subcommand)]
         action: P2PCommands,
     },
-    
+
     /// Configuration management
     Config {
         #[command(subcommand)]
         action: ConfigCommands,
     },
-    
+
     /// Export data and models
     Export {
         /// Export type
         #[arg(short, long, default_value = "all")]
         export_type: String,
-        
+
         /// Output directory
         #[arg(short, long)]
         output: PathBuf,
-        
+
         /// Compression format
         #[arg(short, long, default_value = "gzip")]
         compression: String,
     },
-    
+
     /// Import data and models
     Import {
         /// Input file or directory
         input: PathBuf,
-        
+
         /// Import type
         #[arg(short, long, default_value = "auto")]
         import_type: String,
-        
+
         /// Overwrite existing data
         #[arg(short, long)]
         force: bool,
     },
-    
+
     /// Run benchmarks and tests
     Benchmark {
         /// Benchmark suite
         #[arg(short, long, default_value = "basic")]
         suite: String,
-        
+
         /// Number of iterations
         #[arg(short, long, default_value = "10")]
         iterations: u32,
-        
+
         /// Output format
         #[arg(short, long, default_value = "human")]
         format: OutputFormat,
@@ -194,47 +195,47 @@ enum AgentCommands {
         /// Filter by agent type
         #[arg(short, long)]
         agent_type: Option<String>,
-        
+
         /// Show detailed information
         #[arg(short, long)]
         detailed: bool,
     },
-    
+
     /// Create a new agent
     Create {
         /// Agent type
         agent_type: String,
-        
+
         /// Agent capabilities
         #[arg(short, long)]
         capabilities: Vec<String>,
-        
+
         /// Initial resources
         #[arg(short, long, default_value = "100.0")]
         resources: f64,
     },
-    
+
     /// Remove an agent
     Remove {
         /// Agent ID
         agent_id: String,
-        
+
         /// Force removal
         #[arg(short, long)]
         force: bool,
     },
-    
+
     /// Show agent details
     Info {
         /// Agent ID
         agent_id: String,
     },
-    
+
     /// Send a message to an agent
     Message {
         /// Target agent ID
         agent_id: String,
-        
+
         /// Message content
         message: String,
     },
@@ -248,23 +249,23 @@ enum SwarmCommands {
         #[arg(short, long, default_value = "human")]
         format: OutputFormat,
     },
-    
+
     /// Configure swarm topology
     Topology {
         /// Topology type
         topology_type: String,
-        
+
         /// Apply immediately
         #[arg(short, long)]
         apply: bool,
     },
-    
+
     /// Run swarm optimization
     Optimize {
         /// Optimization target
         #[arg(short, long, default_value = "efficiency")]
         target: String,
-        
+
         /// Maximum iterations
         #[arg(short, long, default_value = "100")]
         max_iterations: u32,
@@ -275,7 +276,7 @@ enum SwarmCommands {
         /// Evolution strategy
         #[arg(short, long, default_value = "adaptive")]
         strategy: String,
-        
+
         /// Number of generations
         #[arg(short, long, default_value = "10")]
         generations: u32,
@@ -286,7 +287,7 @@ enum SwarmCommands {
         /// Organization pattern
         #[arg(short, long, default_value = "dynamic")]
         pattern: String,
-        
+
         /// Force reorganization
         #[arg(short, long)]
         force: bool,
@@ -297,7 +298,7 @@ enum SwarmCommands {
         /// Show detailed mesh information
         #[arg(short, long)]
         detailed: bool,
-        
+
         /// Output format
         #[arg(short, long, default_value = "human")]
         format: OutputFormat,
@@ -307,7 +308,7 @@ enum SwarmCommands {
     Heal {
         /// Failed agent IDs
         failed_agents: Vec<String>,
-        
+
         /// Healing strategy
         #[arg(short, long, default_value = "auto")]
         strategy: String,
@@ -318,7 +319,7 @@ enum SwarmCommands {
         /// Cluster ID filter
         #[arg(short, long)]
         cluster_id: Option<String>,
-        
+
         /// Show cluster details
         #[arg(short, long)]
         detailed: bool,
@@ -329,7 +330,7 @@ enum SwarmCommands {
         /// Metric type
         #[arg(short, long, default_value = "all")]
         metric_type: String,
-        
+
         /// Output format
         #[arg(short, long, default_value = "human")]
         format: OutputFormat,
@@ -344,19 +345,19 @@ enum NetworkCommands {
         #[arg(short, long)]
         detailed: bool,
     },
-    
+
     /// Connect to a peer
     Connect {
         /// Peer address
         address: String,
     },
-    
+
     /// Disconnect from a peer
     Disconnect {
         /// Peer ID
         peer_id: String,
     },
-    
+
     /// Show network statistics
     Stats {
         /// Output format
@@ -372,89 +373,89 @@ enum P2PCommands {
         /// Enable quantum-resistant mode
         #[arg(short, long)]
         quantum: bool,
-        
+
         /// Enable onion routing
         #[arg(short, long)]
         onion: bool,
-        
+
         /// Enable shadow addresses
         #[arg(short, long)]
         shadow: bool,
-        
+
         /// Maximum peers
         #[arg(short, long, default_value = "50")]
         max_peers: usize,
     },
-    
+
     /// Discover peers using DHT
     Discover {
         /// Discovery method
         #[arg(short, long, default_value = "kademlia")]
         method: String,
-        
+
         /// Number of peers to discover
         #[arg(short, long, default_value = "10")]
         count: usize,
     },
-    
+
     /// Create onion circuit
     Circuit {
         /// Destination peer
         destination: String,
-        
+
         /// Number of hops
         #[arg(short, long, default_value = "3")]
         hops: usize,
     },
-    
+
     /// Generate shadow address
     Shadow {
         /// Operation type
         #[arg(short, long, default_value = "generate")]
         operation: String,
-        
+
         /// Existing address (for rotation)
         #[arg(short, long)]
         address: Option<String>,
     },
-    
+
     /// Establish quantum-secure connection
     Quantum {
         /// Target peer ID
         peer_id: String,
-        
+
         /// Security level (1-5)
         #[arg(short, long, default_value = "3")]
         level: u8,
     },
-    
+
     /// Send neural message
     Message {
         /// Destination
         destination: String,
-        
+
         /// Message type
         #[arg(short, long, default_value = "thought")]
         msg_type: String,
-        
+
         /// Message content
         content: String,
-        
+
         /// Priority (0-255)
         #[arg(short, long, default_value = "5")]
         priority: u8,
     },
-    
+
     /// NAT traversal
     NAT {
         /// Target peer
         peer_id: String,
-        
+
         /// Traversal method
         #[arg(short, long, default_value = "auto")]
         method: String,
     },
-    
+
     /// Show P2P status
     Status {
         /// Show detailed information
@@ -471,23 +472,23 @@ enum ConfigCommands {
         #[arg(short, long)]
         section: Option<String>,
     },
-    
+
     /// Update configuration
     Set {
         /// Configuration key
         key: String,
-        
+
         /// Configuration value
         value: String,
     },
-    
+
     /// Reset configuration to defaults
     Reset {
         /// Confirm reset
         #[arg(short, long)]
         confirm: bool,
     },
-    
+
     /// Validate configuration
     Validate {
         /// Configuration file to validate
@@ -520,54 +521,53 @@ impl std::str::FromStr for OutputFormat {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // Initialize logging
     init_logging(&cli.log_level)?;
-    
+
     // Load configuration
     let config = load_config(cli.config.as_ref()).await?;
-    
+
     // Execute command
     match cli.command {
-        Commands::Init { name, listen, peers, quantum } => {
-            cmd_init(name, listen, peers, quantum, &config).await
-        }
-        Commands::Start { daemon, config_override } => {
-            cmd_start(daemon, config_override, &config).await
-        }
-        Commands::Stop => {
-            cmd_stop().await
-        }
-        Commands::Status { format, watch } => {
-            cmd_status(format, watch).await
-        }
-        Commands::Agent { action } => {
-            cmd_agent(action).await
-        }
-        Commands::Swarm { action } => {
-            cmd_swarm(action).await
-        }
-        Commands::Think { prompt, task_type, priority, timeout } => {
-            cmd_think(prompt, task_type, priority, timeout).await
-        }
-        Commands::Network { action } => {
-            cmd_network(action).await
-        }
-        Commands::P2P { action } => {
-            cmd_p2p(action).await
-        }
-        Commands::Config { action } => {
-            cmd_config(action).await
-        }
-        Commands::Export { export_type, output, compression } => {
-            cmd_export(export_type, output, compression).await
-        }
-        Commands::Import { input, import_type, force } => {
-            cmd_import(input, import_type, force).await
-        }
-        Commands::Benchmark { suite, iterations, format } => {
-            cmd_benchmark(suite, iterations, format).await
-        }
+        Commands::Init {
+            name,
+            listen,
+            peers,
+            quantum,
+        } => cmd_init(name, listen, peers, quantum, &config).await,
+        Commands::Start {
+            daemon,
+            config_override,
+        } => cmd_start(daemon, config_override, &config).await,
+        Commands::Stop => cmd_stop().await,
+        Commands::Status { format, watch } => cmd_status(format, watch).await,
+        Commands::Agent { action } => cmd_agent(action).await,
+        Commands::Swarm { action } => cmd_swarm(action).await,
+        Commands::Think {
+            prompt,
+            task_type,
+            priority,
+            timeout,
+        } => cmd_think(prompt, task_type, priority, timeout).await,
+        Commands::Network { action } => cmd_network(action).await,
+        Commands::P2P { action } => cmd_p2p(action).await,
+        Commands::Config { action } => cmd_config(action).await,
+        Commands::Export {
+            export_type,
+            output,
+            compression,
+        } => cmd_export(export_type, output, compression).await,
+        Commands::Import {
+            input,
+            import_type,
+            force,
+        } => cmd_import(input, import_type, force).await,
+        Commands::Benchmark {
+            suite,
+            iterations,
+            format,
+        } => cmd_benchmark(suite, iterations, format).await,
     }
 }
 
@@ -596,40 +596,51 @@ async fn cmd_init(
     quantum: bool,
     _config: &AppConfig,
 ) -> Result<()> {
-    println!("{}", "Initializing Synaptic Neural Mesh node...".green().bold());
-    
+    println!(
+        "{}",
+        "Initializing Synaptic Neural Mesh node...".green().bold()
+    );
+
     let node_name = name.unwrap_or_else(|| format!("node-{}", Uuid::new_v4()));
-    
+
     println!("Node name: {}", node_name.cyan());
     println!("Listen address: {}", listen.cyan());
-    println!("Quantum-resistant: {}", if quantum { "enabled".green() } else { "disabled".yellow() });
-    
+    println!(
+        "Quantum-resistant: {}",
+        if quantum {
+            "enabled".green()
+        } else {
+            "disabled".yellow()
+        }
+    );
+
     if !peers.is_empty() {
         println!("Bootstrap peers:");
         for peer in &peers {
             println!("  - {}", peer.cyan());
         }
     }
-    
+
     // Create node configuration
-    let listen_addr = listen.parse()
+    let listen_addr = listen
+        .parse()
         .map_err(|e| anyhow::anyhow!("Invalid listen address: {}", e))?;
-    
+
     let keypair = libp2p::identity::Keypair::generate_ed25519();
-    
+
     let node_config = NodeConfig {
         listen_addr,
         keypair,
         max_peers: 50,
         consensus_config: qudag_core::consensus::ConsensusConfig::default(),
     };
-    
+
     // Initialize node
     let node = QuDAGNode::new(node_config).await?;
-    
+
     println!("{}", "✓ Node initialized successfully!".green().bold());
     println!("Peer ID: {}", node.peer_count().to_string().cyan());
-    
+
     Ok(())
 }
 
@@ -639,35 +650,35 @@ async fn cmd_start(
     _config: &AppConfig,
 ) -> Result<()> {
     println!("{}", "Starting Synaptic Neural Mesh...".green().bold());
-    
+
     if daemon {
         println!("Running in daemon mode...");
         // In a real implementation, this would fork the process
     }
-    
+
     // Initialize systems
     let mesh_config = MeshConfig::default();
     let daa_config = ArchitectureConfig::default();
-    
+
     let mesh = SynapticNeuralMesh::new(mesh_config).await?;
     let daa = DynamicAgentArchitecture::new(daa_config).await?;
-    
+
     // Start systems
     mesh.start().await?;
     daa.start().await?;
-    
+
     println!("{}", "✓ All systems started successfully!".green().bold());
-    
+
     // Wait for shutdown signal
     signal::ctrl_c().await?;
-    
+
     println!("{}", "Shutting down...".yellow());
-    
+
     daa.stop().await?;
     mesh.stop().await?;
-    
+
     println!("{}", "✓ Shutdown complete".green());
-    
+
     Ok(())
 }
 
@@ -683,7 +694,7 @@ async fn cmd_status(format: OutputFormat, watch: bool) -> Result<()> {
         println!("{}", "Watching node status (Ctrl+C to exit)...".cyan());
         // In a real implementation, this would continuously update
     }
-    
+
     // Mock status data
     let status = NodeStatus {
         peer_id: "12D3KooWExample123".to_string(),
@@ -693,16 +704,25 @@ async fn cmd_status(format: OutputFormat, watch: bool) -> Result<()> {
         active_agents: 8,
         mesh_efficiency: 0.85,
     };
-    
+
     match format {
         OutputFormat::Human => {
             println!("{}", "Node Status".green().bold());
             println!("Peer ID: {}", status.peer_id.cyan());
-            println!("Connected peers: {}", status.connected_peers.to_string().cyan());
+            println!(
+                "Connected peers: {}",
+                status.connected_peers.to_string().cyan()
+            );
             println!("Uptime: {:?}", status.uptime);
-            println!("Total thoughts processed: {}", status.total_thoughts.to_string().cyan());
+            println!(
+                "Total thoughts processed: {}",
+                status.total_thoughts.to_string().cyan()
+            );
             println!("Active agents: {}", status.active_agents.to_string().cyan());
-            println!("Mesh efficiency: {:.1}%", (status.mesh_efficiency * 100.0).to_string().cyan());
+            println!(
+                "Mesh efficiency: {:.1}%",
+                (status.mesh_efficiency * 100.0).to_string().cyan()
+            );
         }
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&status)?);
@@ -711,13 +731,16 @@ async fn cmd_status(format: OutputFormat, watch: bool) -> Result<()> {
             println!("Format not yet implemented");
         }
     }
-    
+
     Ok(())
 }
 
 async fn cmd_agent(action: AgentCommands) -> Result<()> {
     match action {
-        AgentCommands::List { agent_type, detailed } => {
+        AgentCommands::List {
+            agent_type,
+            detailed,
+        } => {
             println!("{}", "Neural Agents".green().bold());
             // Mock agent list
             if detailed {
@@ -728,7 +751,11 @@ async fn cmd_agent(action: AgentCommands) -> Result<()> {
                 println!("3 agents total (2 active, 1 idle)");
             }
         }
-        AgentCommands::Create { agent_type, capabilities, resources } => {
+        AgentCommands::Create {
+            agent_type,
+            capabilities,
+            resources,
+        } => {
             println!("Creating agent of type: {}", agent_type.cyan());
             println!("Capabilities: {:?}", capabilities);
             println!("Resources: {}", resources);
@@ -794,11 +821,22 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                 }
             }
         }
-        
-        SwarmCommands::Topology { topology_type, apply } => {
+
+        SwarmCommands::Topology {
+            topology_type,
+            apply,
+        } => {
             println!("Configuring swarm topology: {}", topology_type.cyan());
-            
-            let valid_types = ["mesh", "ring", "star", "grid", "small-world", "scale-free", "adaptive"];
+
+            let valid_types = [
+                "mesh",
+                "ring",
+                "star",
+                "grid",
+                "small-world",
+                "scale-free",
+                "adaptive",
+            ];
             if !valid_types.contains(&topology_type.as_str()) {
                 println!("{}", "Invalid topology type. Valid options:".red());
                 for t in valid_types {
@@ -806,7 +844,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                 }
                 return Ok(());
             }
-            
+
             if apply {
                 println!("Applying topology changes...");
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -815,61 +853,72 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                 println!("Topology configured (use --apply to activate)");
             }
         }
-        
-        SwarmCommands::Optimize { target, max_iterations } => {
+
+        SwarmCommands::Optimize {
+            target,
+            max_iterations,
+        } => {
             println!("Running swarm optimization...");
             println!("Target: {}", target.cyan());
             println!("Max iterations: {}", max_iterations.to_string().cyan());
-            
+
             for i in 1..=max_iterations.min(5) {
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 let progress = (i as f32 / max_iterations as f32) * 100.0;
-                println!("Iteration {}/{} - Fitness: {:.3}", i, max_iterations, 0.7 + (i as f32 * 0.05));
+                println!(
+                    "Iteration {}/{} - Fitness: {:.3}",
+                    i,
+                    max_iterations,
+                    0.7 + (i as f32 * 0.05)
+                );
             }
-            
+
             println!("{}", "✓ Optimization completed!".green());
             println!("Final fitness score: {}", "0.932".cyan());
         }
-        
-        SwarmCommands::Evolve { strategy, generations } => {
+
+        SwarmCommands::Evolve {
+            strategy,
+            generations,
+        } => {
             println!("Triggering swarm evolution...");
             println!("Strategy: {}", strategy.cyan());
             println!("Generations: {}", generations.to_string().cyan());
-            
+
             for gen in 1..=generations.min(3) {
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 let avg_fitness = 0.5 + (gen as f32 * 0.1);
                 println!("Generation {}: Average fitness = {:.3}", gen, avg_fitness);
-                
+
                 if gen % 5 == 0 {
                     println!("  {} Adaptation triggered", "→".cyan());
                 }
             }
-            
+
             println!("{}", "✓ Evolution cycle completed!".green());
             println!("Population diversity: {}", "0.674".cyan());
             println!("Convergence rate: {}%", "23.4".cyan());
         }
-        
+
         SwarmCommands::Organize { pattern, force } => {
             println!("Triggering self-organization...");
             println!("Pattern: {}", pattern.cyan());
-            
+
             if force {
                 println!("Force reorganization: {}", "enabled".yellow());
             }
-            
+
             tokio::time::sleep(Duration::from_secs(1)).await;
-            
+
             println!("{}", "✓ Self-organization completed!".green());
             println!("New clusters formed: {}", "3".cyan());
             println!("Agents migrated: {}", "12".cyan());
             println!("Organization stability: {}%", "89.2".green());
         }
-        
+
         SwarmCommands::Mesh { detailed, format } => {
             println!("{}", "Evolutionary Mesh Status".green().bold());
-            
+
             match format {
                 OutputFormat::Human => {
                     if detailed {
@@ -909,20 +958,26 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                 }
             }
         }
-        
-        SwarmCommands::Heal { failed_agents, strategy } => {
-            println!("Initiating self-healing for {} failed agents...", failed_agents.len());
+
+        SwarmCommands::Heal {
+            failed_agents,
+            strategy,
+        } => {
+            println!(
+                "Initiating self-healing for {} failed agents...",
+                failed_agents.len()
+            );
             println!("Strategy: {}", strategy.cyan());
-            
+
             if failed_agents.is_empty() {
                 println!("{}", "No failed agents specified".yellow());
                 return Ok(());
             }
-            
+
             for agent in &failed_agents {
                 println!("Healing agent: {}", agent.cyan());
                 tokio::time::sleep(Duration::from_millis(200)).await;
-                
+
                 match strategy.as_str() {
                     "replicate" => println!("  → Replicating from best performer"),
                     "regenerate" => println!("  → Regenerating with random genome"),
@@ -931,15 +986,18 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                     _ => println!("  → Using default strategy"),
                 }
             }
-            
+
             println!("{}", "✓ Self-healing completed!".green());
             println!("Recovery rate: {}%", "94.7".green());
             println!("New agent performance: {}", "0.823".cyan());
         }
-        
-        SwarmCommands::Clusters { cluster_id, detailed } => {
+
+        SwarmCommands::Clusters {
+            cluster_id,
+            detailed,
+        } => {
             println!("{}", "Node Clusters".green().bold());
-            
+
             if let Some(id) = cluster_id {
                 println!("Showing cluster: {}", id.cyan());
                 println!("─────────────────────────────");
@@ -948,7 +1006,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                 println!("Purpose: Computation");
                 println!("Cohesion: 87.3%");
                 println!("Efficiency: 92.1%");
-                
+
                 if detailed {
                     println!("\nMember nodes:");
                     println!("  node_023 (leader) - fitness: 0.921");
@@ -963,7 +1021,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
             } else {
                 println!("─────────────────────────────");
                 println!("Active clusters: {}", "7".cyan());
-                
+
                 if detailed {
                     println!("\nCluster details:");
                     println!("cluster_1: 8 members, leader=node_023, purpose=Computation");
@@ -979,14 +1037,17 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                 }
             }
         }
-        
-        SwarmCommands::Intelligence { metric_type, format } => {
+
+        SwarmCommands::Intelligence {
+            metric_type,
+            format,
+        } => {
             println!("{}", "Swarm Intelligence Metrics".green().bold());
-            
+
             match format {
                 OutputFormat::Human => {
                     println!("─────────────────────────────");
-                    
+
                     match metric_type.as_str() {
                         "evolution" | "all" => {
                             println!("🧬 {}", "Evolution Metrics".cyan());
@@ -998,7 +1059,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                             println!("  Elite preservation: {}%", "15.0".cyan());
                             println!();
                         }
-                        
+
                         "mesh" | "all" => {
                             println!("🕸️ {}", "Mesh Metrics".cyan());
                             println!("  Topology: {}", "Adaptive".cyan());
@@ -1008,7 +1069,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                             println!("  Load balancing: {}%", "86.3".green());
                             println!();
                         }
-                        
+
                         "organization" | "all" => {
                             println!("🏗️ {}", "Organization Metrics".cyan());
                             println!("  Pattern: {}", "Dynamic".cyan());
@@ -1018,7 +1079,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                             println!("  Adaptation frequency: {}", "2.3/min".cyan());
                             println!();
                         }
-                        
+
                         "performance" | "all" => {
                             println!("⚡ {}", "Performance Metrics".cyan());
                             println!("  Overall fitness: {}", "0.847".green());
@@ -1028,7 +1089,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                             println!("  Resource efficiency: {}%", "89.7".green());
                             println!("  Cooperation index: {}", "0.763".cyan());
                         }
-                        
+
                         _ => {
                             println!("{}", "Unknown metric type. Available types:".red());
                             println!("  - evolution");
@@ -1039,7 +1100,7 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                         }
                     }
                 }
-                
+
                 OutputFormat::Json => {
                     let metrics = serde_json::json!({
                         "evolution": {
@@ -1073,24 +1134,31 @@ async fn cmd_swarm(action: SwarmCommands) -> Result<()> {
                             "cooperation_index": 0.763
                         }
                     });
-                    
+
                     match metric_type.as_str() {
-                        "evolution" => println!("{}", serde_json::to_string_pretty(&metrics["evolution"])?),
+                        "evolution" => {
+                            println!("{}", serde_json::to_string_pretty(&metrics["evolution"])?)
+                        }
                         "mesh" => println!("{}", serde_json::to_string_pretty(&metrics["mesh"])?),
-                        "organization" => println!("{}", serde_json::to_string_pretty(&metrics["organization"])?),
-                        "performance" => println!("{}", serde_json::to_string_pretty(&metrics["performance"])?),
+                        "organization" => println!(
+                            "{}",
+                            serde_json::to_string_pretty(&metrics["organization"])?
+                        ),
+                        "performance" => {
+                            println!("{}", serde_json::to_string_pretty(&metrics["performance"])?)
+                        }
                         "all" => println!("{}", serde_json::to_string_pretty(&metrics)?),
                         _ => println!("{}", "Unknown metric type".red()),
                     }
                 }
-                
+
                 _ => {
                     println!("Format not yet implemented");
                 }
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -1102,13 +1170,13 @@ async fn cmd_think(
 ) -> Result<()> {
     println!("Processing thought: {}", prompt.cyan());
     println!("Distributing across neural mesh...");
-    
+
     // Simulate processing
     tokio::time::sleep(Duration::from_secs(2)).await;
-    
+
     println!("{}", "✓ Thought processed successfully!".green());
     println!("Result: Mock cognitive response to the input prompt");
-    
+
     Ok(())
 }
 
@@ -1119,9 +1187,14 @@ async fn cmd_network(_action: NetworkCommands) -> Result<()> {
 
 async fn cmd_p2p(action: P2PCommands) -> Result<()> {
     match action {
-        P2PCommands::Init { quantum, onion, shadow, max_peers } => {
+        P2PCommands::Init {
+            quantum,
+            onion,
+            shadow,
+            max_peers,
+        } => {
             println!("{}", "Initializing P2P networking...".green().bold());
-            
+
             let config = P2PIntegrationConfig {
                 quantum_resistant: quantum,
                 onion_routing: onion,
@@ -1129,48 +1202,73 @@ async fn cmd_p2p(action: P2PCommands) -> Result<()> {
                 max_peers,
                 ..Default::default()
             };
-            
+
             let p2p = P2PIntegration::new(config).await?;
-            
+
             println!("{}", "✓ P2P networking initialized!".green().bold());
-            println!("Quantum-resistant: {}", if quantum { "enabled".green() } else { "disabled".yellow() });
-            println!("Onion routing: {}", if onion { "enabled".green() } else { "disabled".yellow() });
-            println!("Shadow addresses: {}", if shadow { "enabled".green() } else { "disabled".yellow() });
+            println!(
+                "Quantum-resistant: {}",
+                if quantum {
+                    "enabled".green()
+                } else {
+                    "disabled".yellow()
+                }
+            );
+            println!(
+                "Onion routing: {}",
+                if onion {
+                    "enabled".green()
+                } else {
+                    "disabled".yellow()
+                }
+            );
+            println!(
+                "Shadow addresses: {}",
+                if shadow {
+                    "enabled".green()
+                } else {
+                    "disabled".yellow()
+                }
+            );
             println!("Max peers: {}", max_peers.to_string().cyan());
-            
+
             // Store P2P instance globally (in real implementation)
             Ok(())
         }
-        
+
         P2PCommands::Discover { method, count } => {
             println!("Discovering peers using {} method...", method.cyan());
             println!("Target count: {}", count.to_string().cyan());
-            
+
             // Simulate discovery
             tokio::time::sleep(Duration::from_secs(2)).await;
-            
+
             println!("{}", "✓ Discovered peers:".green());
             for i in 0..count.min(5) {
                 println!("  - peer-{}: /ip4/192.168.1.{}/tcp/9000", i, 100 + i);
             }
-            
+
             Ok(())
         }
-        
+
         P2PCommands::Circuit { destination, hops } => {
-            println!("Creating onion circuit to {} with {} hops...", destination.cyan(), hops.to_string().cyan());
-            
+            println!(
+                "Creating onion circuit to {} with {} hops...",
+                destination.cyan(),
+                hops.to_string().cyan()
+            );
+
             // Simulate circuit creation
             tokio::time::sleep(Duration::from_secs(1)).await;
-            
+
             let circuit_id = Uuid::new_v4();
             println!("{}", "✓ Circuit established!".green());
             println!("Circuit ID: {}", circuit_id.to_string().cyan());
             println!("Hops: node-1 → node-2 → node-3 → {}", destination);
-            
+
             Ok(())
         }
-        
+
         P2PCommands::Shadow { operation, address } => {
             match operation.as_str() {
                 "generate" => {
@@ -1196,24 +1294,38 @@ async fn cmd_p2p(action: P2PCommands) -> Result<()> {
             }
             Ok(())
         }
-        
+
         P2PCommands::Quantum { peer_id, level } => {
-            println!("Establishing quantum-secure connection to {}...", peer_id.cyan());
+            println!(
+                "Establishing quantum-secure connection to {}...",
+                peer_id.cyan()
+            );
             println!("Security level: {}", level.to_string().cyan());
-            
+
             // Simulate quantum key exchange
             tokio::time::sleep(Duration::from_secs(1)).await;
-            
-            println!("{}", "✓ Quantum-secure connection established!".green().bold());
-            println!("Protocol: ML-KEM-{}", if level >= 3 { "768" } else { "512" });
+
+            println!(
+                "{}",
+                "✓ Quantum-secure connection established!".green().bold()
+            );
+            println!(
+                "Protocol: ML-KEM-{}",
+                if level >= 3 { "768" } else { "512" }
+            );
             println!("Shared secret: ***********");
-            
+
             Ok(())
         }
-        
-        P2PCommands::Message { destination, msg_type, content, priority } => {
+
+        P2PCommands::Message {
+            destination,
+            msg_type,
+            content,
+            priority,
+        } => {
             println!("Sending neural message to {}...", destination.cyan());
-            
+
             let message = NeuralMessage {
                 id: Uuid::new_v4().to_string(),
                 msg_type: match msg_type.as_str() {
@@ -1231,33 +1343,33 @@ async fn cmd_p2p(action: P2PCommands) -> Result<()> {
                 priority,
                 ttl: 60,
             };
-            
+
             println!("Message ID: {}", message.id.cyan());
             println!("Type: {}", msg_type.cyan());
             println!("Priority: {}", priority.to_string().cyan());
             println!("{}", "✓ Message sent!".green());
-            
+
             Ok(())
         }
-        
+
         P2PCommands::NAT { peer_id, method } => {
             println!("Performing NAT traversal for peer: {}", peer_id.cyan());
             println!("Method: {}", method.cyan());
-            
+
             // Simulate NAT traversal
             tokio::time::sleep(Duration::from_secs(1)).await;
-            
+
             println!("{}", "✓ NAT traversal successful!".green());
             println!("Method used: STUN + TURN relay");
             println!("Connection type: Direct (hole punched)");
-            
+
             Ok(())
         }
-        
+
         P2PCommands::Status { detailed } => {
             println!("{}", "P2P Network Status".green().bold());
             println!("─────────────────────────────");
-            
+
             if detailed {
                 println!("Connected peers: 5");
                 println!("  - peer-001 [Quantum-secure] /ip4/192.168.1.101/tcp/9000");
@@ -1276,40 +1388,31 @@ async fn cmd_p2p(action: P2PCommands) -> Result<()> {
                 println!("Active circuits: 2");
                 println!("Network health: {}%", "95".green());
             }
-            
+
             Ok(())
         }
     }
 }
 
 async fn cmd_config(_action: ConfigCommands) -> Result<()> {
-    println!("{}", "Configuration management not yet implemented".yellow());
+    println!(
+        "{}",
+        "Configuration management not yet implemented".yellow()
+    );
     Ok(())
 }
 
-async fn cmd_export(
-    _export_type: String,
-    _output: PathBuf,
-    _compression: String,
-) -> Result<()> {
+async fn cmd_export(_export_type: String, _output: PathBuf, _compression: String) -> Result<()> {
     println!("{}", "Export functionality not yet implemented".yellow());
     Ok(())
 }
 
-async fn cmd_import(
-    _input: PathBuf,
-    _import_type: String,
-    _force: bool,
-) -> Result<()> {
+async fn cmd_import(_input: PathBuf, _import_type: String, _force: bool) -> Result<()> {
     println!("{}", "Import functionality not yet implemented".yellow());
     Ok(())
 }
 
-async fn cmd_benchmark(
-    _suite: String,
-    _iterations: u32,
-    _format: OutputFormat,
-) -> Result<()> {
+async fn cmd_benchmark(_suite: String, _iterations: u32, _format: OutputFormat) -> Result<()> {
     println!("{}", "Benchmark functionality not yet implemented".yellow());
     Ok(())
 }

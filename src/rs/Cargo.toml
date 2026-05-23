@@ -1,10 +1,15 @@
 [workspace]
 members = [
     "qudag-core",
-    "ruv-fann-wasm", 
+    "ruv-fann-wasm",
     "neural-mesh",
     "daa-swarm",
     "synaptic-mesh-cli",
+]
+exclude = [
+    "ruv-FANN",
+    "QuDAG",
+    "daa",
 ]
 resolver = "2"
 
@@ -69,9 +74,7 @@ num-traits = "0.2"
 wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
-    "console", "Performance", "Window", "Worker", "MessageChannel",
-    "Gpu", "GpuAdapter", "GpuDevice", "GpuBuffer", "GpuCommandEncoder",
-    "GpuComputePipeline", "GpuBindGroup", "GpuQueue"
+    "console", "Performance", "Window", "Worker", "MessageChannel"
 ] }
 console_error_panic_hook = "0.1"
 wasm-bindgen-futures = "0.4"
@@ -88,7 +91,7 @@ tokio-test = "0.4"
 tempfile = "3.8"
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["rUv <https://github.com/ruvnet>"]
 repository = "https://github.com/ruvnet/Synaptic-Neural-Mesh"

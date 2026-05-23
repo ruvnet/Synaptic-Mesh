@@ -1,5 +1,5 @@
 //! Neural Mesh - Distributed cognition layer for Synaptic Neural Mesh
-//! 
+//!
 //! This crate provides the distributed neural cognition capabilities that connect
 //! QuDAG networking with ruv-FANN neural networks and DAA swarm intelligence.
 
@@ -9,15 +9,13 @@ pub mod coordinator;
 pub mod distributed;
 pub mod error;
 pub mod mesh;
-pub mod sync;
 
-pub use agent::{NeuralAgent, AgentConfig, AgentState, AgentMetrics};
-pub use cognition::{CognitionEngine, CognitionTask, CognitionResult, ThoughtPattern};
-pub use coordinator::{MeshCoordinator, CoordinationStrategy, TaskDistribution};
-pub use distributed::{DistributedTraining, TrainingStrategy, ModelSync};
+pub use agent::{AgentConfig, AgentMetrics, AgentState, NeuralAgent};
+pub use cognition::{CognitionEngine, CognitionResult, CognitionTask, ThoughtPattern};
+pub use coordinator::{CoordinationStrategy, MeshCoordinator, TaskDistribution};
+pub use distributed::{DistributedTraining, ModelSync, TrainingStrategy};
 pub use error::{NeuralMeshError, Result};
-pub use mesh::{NeuralMesh, MeshNode, MeshTopology, ConnectionStrength};
-pub use sync::{ModelSynchronizer, SyncStrategy, ConflictResolution};
+pub use mesh::{ConnectionStrength, MeshNode, MeshTopology, NeuralMesh};
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -37,9 +35,11 @@ impl SynapticNeuralMesh {
     /// Create a new Synaptic Neural Mesh
     pub async fn new(config: MeshConfig) -> Result<Self> {
         let mesh = Arc::new(NeuralMesh::new(config.mesh_topology.clone()).await?);
-        let coordinator = Arc::new(MeshCoordinator::new(config.coordination_strategy.clone()).await?);
+        let coordinator =
+            Arc::new(MeshCoordinator::new(config.coordination_strategy.clone()).await?);
         let agents = Arc::new(RwLock::new(std::collections::HashMap::new()));
-        let cognition_engine = Arc::new(CognitionEngine::new(config.cognition_config.clone()).await?);
+        let cognition_engine =
+            Arc::new(CognitionEngine::new(config.cognition_config.clone()).await?);
 
         Ok(Self {
             mesh,
@@ -54,16 +54,16 @@ impl SynapticNeuralMesh {
     pub async fn start(&self) -> Result<()> {
         // Start mesh networking
         self.mesh.start().await?;
-        
+
         // Start coordination
         self.coordinator.start().await?;
-        
+
         // Start cognition engine
         self.cognition_engine.start().await?;
-        
+
         // Spawn initial agents
         self.spawn_initial_agents().await?;
-        
+
         tracing::info!("Synaptic Neural Mesh started successfully");
         Ok(())
     }
@@ -79,13 +79,13 @@ impl SynapticNeuralMesh {
 
         // Stop cognition engine
         self.cognition_engine.stop().await?;
-        
+
         // Stop coordinator
         self.coordinator.stop().await?;
-        
+
         // Stop mesh
         self.mesh.stop().await?;
-        
+
         tracing::info!("Synaptic Neural Mesh stopped");
         Ok(())
     }
@@ -96,10 +96,14 @@ impl SynapticNeuralMesh {
         let agent_id = agent.id();
 
         // Add to mesh
-        self.mesh.add_agent(agent_id, agent.get_node()).await?;
+        self.mesh
+            .add_agent(agent_id, agent.get_node().await)
+            .await?;
 
         // Register with coordinator
-        self.coordinator.register_agent(agent_id, agent.capabilities()).await?;
+        self.coordinator
+            .register_agent(agent_id, agent.capabilities())
+            .await?;
 
         // Store agent
         {
@@ -129,13 +133,16 @@ impl SynapticNeuralMesh {
     pub async fn think(&self, task: CognitionTask) -> Result<CognitionResult> {
         // Distribute task through coordinator
         let assignment = self.coordinator.assign_task(task.clone()).await?;
-        
+
         // Execute distributed cognition
-        let result = self.cognition_engine.process_distributed(task, assignment).await?;
-        
+        let result = self
+            .cognition_engine
+            .process_distributed(task, assignment)
+            .await?;
+
         // Update mesh based on results
         self.mesh.update_connections(&result).await?;
-        
+
         Ok(result)
     }
 
@@ -182,10 +189,10 @@ impl SynapticNeuralMesh {
                 max_connections: 10,
                 learning_rate: 0.01,
             };
-            
+
             self.create_agent(config).await?;
         }
-        
+
         Ok(())
     }
 }
@@ -197,7 +204,7 @@ pub struct MeshConfig {
     pub coordination_strategy: CoordinationStrategy,
     pub cognition_config: cognition::CognitionConfig,
     pub initial_agent_count: usize,
-    pub default_neural_config: ruv_fann::NetworkConfig,
+    pub default_neural_config: agent::NeuralNetworkConfig,
     pub sync_interval: std::time::Duration,
     pub max_agents: usize,
 }
@@ -209,7 +216,7 @@ impl Default for MeshConfig {
             coordination_strategy: CoordinationStrategy::Adaptive,
             cognition_config: cognition::CognitionConfig::default(),
             initial_agent_count: 5,
-            default_neural_config: ruv_fann::NetworkConfig::default(),
+            default_neural_config: agent::NeuralNetworkConfig::default(),
             sync_interval: std::time::Duration::from_secs(30),
             max_agents: 100,
         }
@@ -242,7 +249,7 @@ mod tests {
     async fn test_mesh_lifecycle() {
         let config = MeshConfig::default();
         let mesh = SynapticNeuralMesh::new(config).await.unwrap();
-        
+
         assert!(mesh.start().await.is_ok());
         assert!(mesh.stop().await.is_ok());
     }
@@ -251,18 +258,18 @@ mod tests {
     async fn test_agent_management() {
         let config = MeshConfig::default();
         let mesh = SynapticNeuralMesh::new(config).await.unwrap();
-        
+
         let agent_config = AgentConfig {
             name: "test-agent".to_string(),
-            neural_config: ruv_fann::NetworkConfig::default(),
+            neural_config: agent::NeuralNetworkConfig::default(),
             capabilities: vec!["test".to_string()],
             max_connections: 5,
             learning_rate: 0.01,
         };
-        
+
         let agent_id = mesh.create_agent(agent_config).await.unwrap();
         assert!(mesh.get_agent(agent_id).await.is_some());
-        
+
         assert!(mesh.remove_agent(agent_id).await.unwrap());
         assert!(mesh.get_agent(agent_id).await.is_none());
     }

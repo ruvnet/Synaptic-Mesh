@@ -1,20 +1,20 @@
 // End-to-end workflow tests for complete system validation
 
 use assert_cmd::Command;
-use tempfile::TempDir;
+use predicates::prelude::*;
 use std::fs;
 use std::time::{Duration, Instant};
+use tempfile::TempDir;
 use tokio::time::sleep;
-use predicates::prelude::*;
 
 #[tokio::test]
 async fn test_complete_mesh_deployment() {
     // Test complete deployment workflow from initialization to production
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
-    
+
     println!("=== Complete Mesh Deployment Test ===");
-    
+
     // Step 1: Initialize node
     println!("Step 1: Initializing node...");
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
@@ -29,7 +29,7 @@ async fn test_complete_mesh_deployment() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Node initialized"));
-    
+
     // Step 2: Start node services
     println!("Step 2: Starting node services...");
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
@@ -40,9 +40,9 @@ async fn test_complete_mesh_deployment() {
         .arg("--background")
         .assert()
         .success();
-    
+
     sleep(Duration::from_secs(2)).await;
-    
+
     // Step 3: Create neural swarm
     println!("Step 3: Creating neural swarm...");
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
@@ -59,10 +59,10 @@ async fn test_complete_mesh_deployment() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Swarm created"));
-    
+
     // Step 4: Deploy neural model
     println!("Step 4: Deploying neural model...");
-    
+
     // Create model definition
     let model_config = serde_json::json!({
         "architecture": {
@@ -83,10 +83,10 @@ async fn test_complete_mesh_deployment() {
             "aggregation": "federated_avg"
         }
     });
-    
+
     let model_path = temp_dir.path().join("model.json");
     fs::write(&model_path, model_config.to_string()).unwrap();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("neural")
         .arg("deploy")
@@ -98,7 +98,7 @@ async fn test_complete_mesh_deployment() {
         .arg("production-model")
         .assert()
         .success();
-    
+
     // Step 5: Verify system health
     println!("Step 5: Verifying system health...");
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
@@ -109,11 +109,11 @@ async fn test_complete_mesh_deployment() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Healthy"));
-    
+
     // Step 6: Run inference
     println!("Step 6: Running inference...");
     let test_input = vec![0.1; 784]; // MNIST-like input
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("neural")
         .arg("predict")
@@ -126,7 +126,7 @@ async fn test_complete_mesh_deployment() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Prediction"));
-    
+
     // Step 7: Monitor performance
     println!("Step 7: Monitoring performance...");
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
@@ -137,7 +137,7 @@ async fn test_complete_mesh_deployment() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Metrics"));
-    
+
     // Step 8: Graceful shutdown
     println!("Step 8: Graceful shutdown...");
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
@@ -147,7 +147,7 @@ async fn test_complete_mesh_deployment() {
         .arg(config_path.to_str().unwrap())
         .assert()
         .success();
-    
+
     println!("=== Complete Mesh Deployment Test: PASSED ===");
 }
 
@@ -156,17 +156,18 @@ async fn test_distributed_learning_workflow() {
     // Test complete distributed learning workflow
     let num_nodes = 3;
     let mut nodes = Vec::new();
-    
+
     println!("=== Distributed Learning Workflow Test ===");
-    
+
     // Step 1: Set up distributed nodes
     println!("Step 1: Setting up {} distributed nodes...", num_nodes);
-    
+
     for i in 0..num_nodes {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
-        let config = format!(r#"
+
+        let config = format!(
+            r#"
 [node]
 id = "learn-node-{}"
 name = "Learning Node {}"
@@ -189,17 +190,18 @@ path = "{}/data"
             12100 + i,
             12100 + i,
             if i > 0 {
-                (0..i).map(|j| format!("\"/ip4/127.0.0.1/tcp/{}\"", 12100 + j))
-                      .collect::<Vec<_>>()
-                      .join(", ")
+                (0..i)
+                    .map(|j| format!("\"/ip4/127.0.0.1/tcp/{}\"", 12100 + j))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             } else {
                 String::new()
             },
             temp_dir.path().to_string_lossy()
         );
-        
+
         fs::write(&config_path, config).unwrap();
-        
+
         // Start node
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         cmd.arg("node")
@@ -209,81 +211,89 @@ path = "{}/data"
             .arg("--background")
             .assert()
             .success();
-        
+
         nodes.push((temp_dir, config_path));
         sleep(Duration::from_secs(1)).await;
     }
-    
+
     // Step 2: Create training data
     println!("Step 2: Creating distributed training data...");
-    
+
     let total_samples = 1000;
     let samples_per_node = total_samples / num_nodes;
-    
+
     for (i, (temp_dir, _)) in nodes.iter().enumerate() {
         let start_idx = i * samples_per_node;
         let end_idx = (i + 1) * samples_per_node;
-        
+
         let inputs: Vec<Vec<f32>> = (start_idx..end_idx)
             .map(|j| vec![(j as f32) / 1000.0, ((j * 2) as f32) / 1000.0])
             .collect();
-        
+
         let outputs: Vec<Vec<f32>> = (start_idx..end_idx)
             .map(|j| vec![((j as f32) / 1000.0) * 2.0]) // y = 2x
             .collect();
-        
+
         let training_data = serde_json::json!({
             "inputs": inputs,
             "outputs": outputs,
             "node_id": i
         });
-        
+
         let data_path = temp_dir.path().join("training_data.json");
         fs::write(&data_path, training_data.to_string()).unwrap();
     }
-    
+
     // Step 3: Start distributed training
     println!("Step 3: Starting distributed training...");
-    
+
     let training_start = Instant::now();
-    
+
     // Start training on each node
-    let training_tasks: Vec<_> = nodes.iter().enumerate().map(|(i, (temp_dir, config_path))| {
-        let config_path = config_path.to_str().unwrap().to_string();
-        let data_path = temp_dir.path().join("training_data.json").to_string_lossy().to_string();
-        
-        tokio::spawn(async move {
-            let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
-            cmd.arg("neural")
-                .arg("train")
-                .arg("--config")
-                .arg(&config_path)
-                .arg("--data")
-                .arg(&data_path)
-                .arg("--distributed")
-                .arg("--epochs")
-                .arg("50")
-                .arg("--sync-interval")
-                .arg("10")
-                .output()
+    let training_tasks: Vec<_> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, (temp_dir, config_path))| {
+            let config_path = config_path.to_str().unwrap().to_string();
+            let data_path = temp_dir
+                .path()
+                .join("training_data.json")
+                .to_string_lossy()
+                .to_string();
+
+            tokio::spawn(async move {
+                let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
+                cmd.arg("neural")
+                    .arg("train")
+                    .arg("--config")
+                    .arg(&config_path)
+                    .arg("--data")
+                    .arg(&data_path)
+                    .arg("--distributed")
+                    .arg("--epochs")
+                    .arg("50")
+                    .arg("--sync-interval")
+                    .arg("10")
+                    .output()
+            })
         })
-    }).collect();
-    
+        .collect();
+
     // Wait for training to complete
     for task in training_tasks {
         let result = task.await.unwrap().unwrap();
         assert!(result.status.success(), "Training should succeed");
     }
-    
+
     let training_time = training_start.elapsed();
     println!("Training completed in {}s", training_time.as_secs());
-    
+
     // Step 4: Verify model convergence
     println!("Step 4: Verifying model convergence...");
-    
+
     let test_input = vec![0.5, 1.0];
     let expected_output = 1.0; // 2 * 0.5
-    
+
     for (i, (_, config_path)) in nodes.iter().enumerate() {
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         let output = cmd
@@ -295,19 +305,19 @@ path = "{}/data"
             .arg(&serde_json::to_string(&test_input).unwrap())
             .output()
             .unwrap();
-        
+
         assert!(output.status.success());
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
         // Parse prediction from output (simplified)
         if let Some(pred_line) = stdout.lines().find(|l| l.contains("prediction")) {
             println!("Node {} prediction: {}", i, pred_line);
         }
     }
-    
+
     // Step 5: Test model consensus
     println!("Step 5: Testing model consensus...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("neural")
         .arg("consensus")
@@ -317,10 +327,10 @@ path = "{}/data"
         .assert()
         .success()
         .stdout(predicate::str::contains("Consensus achieved"));
-    
+
     // Step 6: Performance validation
     println!("Step 6: Performance validation...");
-    
+
     for (i, (_, config_path)) in nodes.iter().enumerate() {
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         cmd.arg("system")
@@ -330,10 +340,10 @@ path = "{}/data"
             .assert()
             .success();
     }
-    
+
     // Step 7: Cleanup
     println!("Step 7: Cleanup...");
-    
+
     for (_, config_path) in &nodes {
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         cmd.arg("node")
@@ -343,7 +353,7 @@ path = "{}/data"
             .output()
             .unwrap();
     }
-    
+
     println!("=== Distributed Learning Workflow Test: PASSED ===");
 }
 
@@ -352,12 +362,12 @@ async fn test_swarm_evolution_cycle() {
     // Test complete swarm evolution lifecycle
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
-    
+
     println!("=== Swarm Evolution Cycle Test ===");
-    
+
     // Step 1: Initialize evolution environment
     println!("Step 1: Initializing evolution environment...");
-    
+
     let config = r#"
 [node]
 id = "evolution-node"
@@ -378,9 +388,9 @@ evolution_targets = ["accuracy", "efficiency", "robustness"]
 [performance]
 fitness_evaluation = true
 "#;
-    
+
     fs::write(&config_path, config).unwrap();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("node")
         .arg("init")
@@ -388,10 +398,10 @@ fitness_evaluation = true
         .arg(config_path.to_str().unwrap())
         .assert()
         .success();
-    
+
     // Step 2: Create initial population
     println!("Step 2: Creating initial population...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("swarm")
         .arg("evolve")
@@ -405,10 +415,10 @@ fitness_evaluation = true
         .assert()
         .success()
         .stdout(predicate::str::contains("Initial population created"));
-    
+
     // Step 3: Define fitness function
     println!("Step 3: Defining fitness function...");
-    
+
     let fitness_config = serde_json::json!({
         "objectives": [
             {"name": "accuracy", "weight": 0.4, "maximize": true},
@@ -418,10 +428,10 @@ fitness_evaluation = true
         "evaluation_rounds": 5,
         "test_cases": 100
     });
-    
+
     let fitness_path = temp_dir.path().join("fitness.json");
     fs::write(&fitness_path, fitness_config.to_string()).unwrap();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("swarm")
         .arg("evolve")
@@ -432,16 +442,16 @@ fitness_evaluation = true
         .arg(fitness_path.to_str().unwrap())
         .assert()
         .success();
-    
+
     // Step 4: Run evolution cycles
     println!("Step 4: Running evolution cycles...");
-    
+
     let evolution_start = Instant::now();
     let num_generations = 5;
-    
+
     for generation in 0..num_generations {
         println!("  Generation {}/{}...", generation + 1, num_generations);
-        
+
         // Evaluate current population
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         cmd.arg("swarm")
@@ -453,7 +463,7 @@ fitness_evaluation = true
             .arg(&generation.to_string())
             .assert()
             .success();
-        
+
         // Select parents
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         cmd.arg("swarm")
@@ -467,7 +477,7 @@ fitness_evaluation = true
             .arg("5")
             .assert()
             .success();
-        
+
         // Generate offspring
         let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
         cmd.arg("swarm")
@@ -481,16 +491,16 @@ fitness_evaluation = true
             .arg("0.7")
             .assert()
             .success();
-        
+
         sleep(Duration::from_secs(1)).await;
     }
-    
+
     let evolution_time = evolution_start.elapsed();
     println!("Evolution completed in {}s", evolution_time.as_secs());
-    
+
     // Step 5: Analyze results
     println!("Step 5: Analyzing evolution results...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     let output = cmd
         .arg("swarm")
@@ -500,17 +510,17 @@ fitness_evaluation = true
         .arg(config_path.to_str().unwrap())
         .output()
         .unwrap();
-    
+
     assert!(output.status.success());
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Best fitness:"));
     assert!(stdout.contains("Average fitness:"));
     assert!(stdout.contains("Generations:"));
-    
+
     // Step 6: Deploy best individual
     println!("Step 6: Deploying best evolved individual...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("swarm")
         .arg("evolve")
@@ -523,10 +533,10 @@ fitness_evaluation = true
         .assert()
         .success()
         .stdout(predicate::str::contains("Deployed"));
-    
+
     // Step 7: Validate evolved swarm
     println!("Step 7: Validating evolved swarm...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("swarm")
         .arg("test")
@@ -539,7 +549,7 @@ fitness_evaluation = true
         .assert()
         .success()
         .stdout(predicate::str::contains("Test passed"));
-    
+
     println!("=== Swarm Evolution Cycle Test: PASSED ===");
 }
 
@@ -548,12 +558,12 @@ async fn test_production_readiness_workflow() {
     // Test complete production readiness validation
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
-    
+
     println!("=== Production Readiness Workflow Test ===");
-    
+
     // Step 1: Production configuration
     println!("Step 1: Setting up production configuration...");
-    
+
     let config = r#"
 [node]
 id = "production-ready"
@@ -581,12 +591,12 @@ enabled = true
 interval = 3600  # 1 hour
 retention_days = 30
 "#;
-    
+
     fs::write(&config_path, config).unwrap();
-    
+
     // Step 2: Security validation
     println!("Step 2: Security validation...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("security")
         .arg("audit")
@@ -596,10 +606,10 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Security audit passed"));
-    
+
     // Step 3: Performance benchmarking
     println!("Step 3: Performance benchmarking...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("benchmark")
         .arg("--config")
@@ -611,10 +621,10 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Benchmark completed"));
-    
+
     // Step 4: Load testing
     println!("Step 4: Load testing...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("test")
         .arg("load")
@@ -629,10 +639,10 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Load test passed"));
-    
+
     // Step 5: Fault tolerance testing
     println!("Step 5: Fault tolerance testing...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("test")
         .arg("fault-tolerance")
@@ -643,10 +653,10 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Fault tolerance tests passed"));
-    
+
     // Step 6: Backup and recovery testing
     println!("Step 6: Backup and recovery testing...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("backup")
         .arg("create")
@@ -655,7 +665,7 @@ retention_days = 30
         .arg("--test-mode")
         .assert()
         .success();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("backup")
         .arg("restore")
@@ -666,10 +676,10 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Backup restored successfully"));
-    
+
     // Step 7: Monitoring validation
     println!("Step 7: Monitoring validation...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("monitoring")
         .arg("validate")
@@ -679,10 +689,10 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Monitoring systems operational"));
-    
+
     // Step 8: Final production readiness check
     println!("Step 8: Final production readiness check...");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("system")
         .arg("production-ready")
@@ -692,7 +702,7 @@ retention_days = 30
         .assert()
         .success()
         .stdout(predicate::str::contains("Production ready: ✓"));
-    
+
     println!("=== Production Readiness Workflow Test: PASSED ===");
 }
 
@@ -700,14 +710,14 @@ retention_days = 30
 async fn test_disaster_recovery_workflow() {
     // Test disaster recovery capabilities
     let temp_dir = TempDir::new().unwrap();
-    
+
     println!("=== Disaster Recovery Workflow Test ===");
-    
+
     // This would test various disaster scenarios and recovery procedures
     // For brevity, testing one critical scenario
-    
+
     println!("Testing critical data recovery scenario...");
-    
+
     // Simulate data corruption and recovery
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("test")
@@ -718,6 +728,6 @@ async fn test_disaster_recovery_workflow() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Recovery successful"));
-    
+
     println!("=== Disaster Recovery Workflow Test: PASSED ===");
 }
