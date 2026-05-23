@@ -7,40 +7,40 @@ use thiserror::Error;
 pub enum QuDAGError {
     #[error("Network error: {0}")]
     NetworkError(String),
-    
+
     #[error("Consensus error: {0}")]
     ConsensusError(String),
-    
+
     #[error("Cryptography error: {0}")]
     CryptoError(String),
-    
+
     #[error("Validation error: {0}")]
     ValidationError(String),
-    
+
     #[error("Storage error: {0}")]
     StorageError(String),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("LibP2P error: {0}")]
     LibP2PError(#[from] libp2p::core::transport::TransportError<std::io::Error>),
-    
+
     #[error("UUID error: {0}")]
     UuidError(#[from] uuid::Error),
-    
+
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
-    
+
     #[error("Bincode error: {0}")]
     BincodeError(#[from] bincode::Error),
-    
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -50,37 +50,37 @@ impl QuDAGError {
     pub fn network<S: Into<String>>(msg: S) -> Self {
         Self::NetworkError(msg.into())
     }
-    
+
     /// Create a consensus error
     pub fn consensus<S: Into<String>>(msg: S) -> Self {
         Self::ConsensusError(msg.into())
     }
-    
+
     /// Create a crypto error
     pub fn crypto<S: Into<String>>(msg: S) -> Self {
         Self::CryptoError(msg.into())
     }
-    
+
     /// Create a validation error
     pub fn validation<S: Into<String>>(msg: S) -> Self {
         Self::ValidationError(msg.into())
     }
-    
+
     /// Create a storage error
     pub fn storage<S: Into<String>>(msg: S) -> Self {
         Self::StorageError(msg.into())
     }
-    
+
     /// Check if this is a network-related error
     pub fn is_network_error(&self) -> bool {
         matches!(self, Self::NetworkError(_) | Self::LibP2PError(_))
     }
-    
+
     /// Check if this is a validation error
     pub fn is_validation_error(&self) -> bool {
         matches!(self, Self::ValidationError(_))
     }
-    
+
     /// Check if this is a recoverable error
     pub fn is_recoverable(&self) -> bool {
         match self {
@@ -132,13 +132,6 @@ impl From<libp2p::swarm::DialError> for QuDAGError {
     }
 }
 
-/// Convert ML-DSA signature errors to QuDAGError
-impl From<ml_dsa::Error> for QuDAGError {
-    fn from(err: ml_dsa::Error) -> Self {
-        Self::CryptoError(format!("ML-DSA error: {}", err))
-    }
-}
-
 /// Convert multiaddr parse errors to QuDAGError
 impl From<multiaddr::Error> for QuDAGError {
     fn from(err: multiaddr::Error) -> Self {
@@ -185,9 +178,9 @@ mod tests {
     fn test_error_from_io() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let qudag_err = QuDAGError::from(io_err);
-        
+
         match qudag_err {
-            QuDAGError::IoError(_) => {},
+            QuDAGError::IoError(_) => {}
             _ => panic!("Expected IoError"),
         }
     }
@@ -207,9 +200,9 @@ mod tests {
     fn test_error_chain() {
         let json_err = serde_json::from_str::<i32>("invalid json").unwrap_err();
         let qudag_err = QuDAGError::from(json_err);
-        
+
         match qudag_err {
-            QuDAGError::JsonError(_) => {},
+            QuDAGError::JsonError(_) => {}
             _ => panic!("Expected JsonError"),
         }
     }

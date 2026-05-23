@@ -1,5 +1,5 @@
 //! QuDAG Core - Quantum-resistant DAG networking and consensus
-//! 
+//!
 //! This crate provides the core networking and consensus functionality for QuDAG,
 //! a quantum-resistant directed acyclic graph (DAG) system designed for peer-to-peer
 //! mesh networking with post-quantum cryptography.
@@ -7,20 +7,20 @@
 pub mod consensus;
 pub mod crypto;
 pub mod dag;
+pub mod error;
+pub mod metrics;
 pub mod networking;
 pub mod peer;
 pub mod storage;
-pub mod error;
-pub mod metrics;
 
-pub use consensus::{QRAvalanche, ConsensusEngine, ConsensusMessage};
-pub use crypto::{QuantumResistantCrypto, PostQuantumSignature, MLDSAKeypair, MLKEMKeypair};
-pub use dag::{DAGNode, DAGEdge, DAGNetwork, DAGValidation};
-pub use networking::{QuDAGNetwork, NetworkBehavior, NetworkEvent};
-pub use peer::{PeerInfo, PeerManager, PeerDiscovery};
-pub use storage::{DAGStorage, MemoryStorage, PersistentStorage};
+pub use consensus::{ConsensusEngine, ConsensusMessage, QRAvalanche};
+pub use crypto::{PostQuantumSignature, QuantumFingerprint, QuantumResistantCrypto};
+pub use dag::{DAGEdge, DAGNetwork, DAGNode, DAGValidation};
 pub use error::{QuDAGError, Result};
-pub use metrics::{NetworkMetrics, ConsensusMetrics};
+pub use metrics::{ConsensusMetrics, NetworkMetrics};
+pub use networking::{NetworkBehavior, NetworkEvent, QuDAGNetwork};
+pub use peer::{PeerDiscovery, PeerInfo, PeerManager};
+pub use storage::{DAGStorage, MemoryStorage, PersistentStorage};
 
 /// Core QuDAG node that combines networking, consensus, and storage
 #[derive(Debug)]
@@ -70,14 +70,14 @@ impl QuDAGNode {
     pub async fn submit_transaction(&mut self, data: Vec<u8>) -> Result<uuid::Uuid> {
         let node_id = uuid::Uuid::new_v4();
         let dag_node = DAGNode::new(node_id, data, self.get_dag_tips().await?);
-        
+
         // Validate and add to DAG
         self.consensus.validate_node(&dag_node).await?;
         self.storage.add_node(dag_node.clone()).await?;
-        
+
         // Broadcast to network
         self.network.broadcast_dag_node(dag_node).await?;
-        
+
         self.metrics.increment_transactions();
         Ok(node_id)
     }
@@ -134,7 +134,7 @@ mod tests {
     async fn test_node_lifecycle() {
         let config = NodeConfig::default();
         let mut node = QuDAGNode::new(config).await.unwrap();
-        
+
         assert!(node.start().await.is_ok());
         assert!(node.stop().await.is_ok());
     }
@@ -143,7 +143,7 @@ mod tests {
     async fn test_transaction_submission() {
         let config = NodeConfig::default();
         let mut node = QuDAGNode::new(config).await.unwrap();
-        
+
         let data = b"test transaction".to_vec();
         let tx_id = node.submit_transaction(data).await;
         assert!(tx_id.is_ok());

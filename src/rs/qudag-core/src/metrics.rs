@@ -1,11 +1,11 @@
 //! Metrics collection and monitoring for QuDAG
 
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 
 /// Network metrics collector
 #[derive(Debug)]
@@ -14,22 +14,22 @@ pub struct NetworkMetrics {
     connected_peers: AtomicUsize,
     total_connections: AtomicU64,
     failed_connections: AtomicU64,
-    
+
     // Message metrics
     messages_sent: AtomicU64,
     messages_received: AtomicU64,
     bytes_sent: AtomicU64,
     bytes_received: AtomicU64,
-    
+
     // DAG metrics
     transactions_submitted: AtomicU64,
     nodes_validated: AtomicU64,
     validation_failures: AtomicU64,
-    
+
     // Performance metrics
     start_time: Instant,
     last_update: AtomicU64,
-    
+
     // Histogram data
     latency_histogram: Arc<RwLock<LatencyHistogram>>,
     throughput_window: Arc<RwLock<ThroughputWindow>>,
@@ -51,7 +51,10 @@ impl NetworkMetrics {
             validation_failures: AtomicU64::new(0),
             start_time: Instant::now(),
             last_update: AtomicU64::new(
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
             ),
             latency_histogram: Arc::new(RwLock::new(LatencyHistogram::new())),
             throughput_window: Arc::new(RwLock::new(ThroughputWindow::new())),
@@ -88,7 +91,8 @@ impl NetworkMetrics {
     /// Record a received message
     pub fn message_received(&self, bytes: usize) {
         self.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.bytes_received.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.bytes_received
+            .fetch_add(bytes as u64, Ordering::Relaxed);
         self.throughput_window.write().record_received(bytes);
         self.update_timestamp();
     }
@@ -121,32 +125,32 @@ impl NetworkMetrics {
     pub fn get_snapshot(&self) -> MetricsSnapshot {
         let latency_stats = self.latency_histogram.read().get_stats();
         let throughput_stats = self.throughput_window.read().get_stats();
-        
+
         MetricsSnapshot {
             // Connection metrics
             connected_peers: self.connected_peers.load(Ordering::Relaxed),
             total_connections: self.total_connections.load(Ordering::Relaxed),
             failed_connections: self.failed_connections.load(Ordering::Relaxed),
-            
+
             // Message metrics
             messages_sent: self.messages_sent.load(Ordering::Relaxed),
             messages_received: self.messages_received.load(Ordering::Relaxed),
             bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
             bytes_received: self.bytes_received.load(Ordering::Relaxed),
-            
+
             // DAG metrics
             transactions_submitted: self.transactions_submitted.load(Ordering::Relaxed),
             nodes_validated: self.nodes_validated.load(Ordering::Relaxed),
             validation_failures: self.validation_failures.load(Ordering::Relaxed),
-            
+
             // Performance metrics
             uptime_seconds: self.start_time.elapsed().as_secs(),
             last_update: self.last_update.load(Ordering::Relaxed),
-            
+
             // Derived metrics
             connection_success_rate: self.calculate_connection_success_rate(),
             validation_success_rate: self.calculate_validation_success_rate(),
-            
+
             // Latency and throughput
             latency_stats,
             throughput_stats,
@@ -156,7 +160,7 @@ impl NetworkMetrics {
     /// Get metrics in Prometheus format
     pub fn to_prometheus(&self) -> String {
         let snapshot = self.get_snapshot();
-        
+
         format!(
             "# HELP qudag_connected_peers Number of currently connected peers\n\
              # TYPE qudag_connected_peers gauge\n\
@@ -226,14 +230,17 @@ impl NetworkMetrics {
     }
 
     fn update_timestamp(&self) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         self.last_update.store(now, Ordering::Relaxed);
     }
 
     fn calculate_connection_success_rate(&self) -> f64 {
         let total = self.total_connections.load(Ordering::Relaxed);
         let failed = self.failed_connections.load(Ordering::Relaxed);
-        
+
         if total == 0 {
             1.0
         } else {
@@ -245,7 +252,7 @@ impl NetworkMetrics {
         let validated = self.nodes_validated.load(Ordering::Relaxed);
         let failed = self.validation_failures.load(Ordering::Relaxed);
         let total = validated + failed;
-        
+
         if total == 0 {
             1.0
         } else {
@@ -283,7 +290,7 @@ impl ConsensusMetrics {
 
     pub fn round_completed(&self, duration: Duration) {
         self.rounds_completed.fetch_add(1, Ordering::Relaxed);
-        
+
         // Update average round time using exponential moving average
         let new_time = duration.as_millis() as u64;
         let current_avg = self.average_round_time.load(Ordering::Relaxed);
@@ -343,14 +350,14 @@ impl LatencyHistogram {
 
     fn record(&mut self, latency: Duration) {
         let latency_ms = latency.as_millis() as u64;
-        
+
         // Determine bucket (powers of 2)
         let bucket = if latency_ms == 0 {
             1
         } else {
             latency_ms.next_power_of_two()
         };
-        
+
         *self.buckets.entry(bucket).or_insert(0) += 1;
         self.total_samples += 1;
         self.sum_ms += latency_ms;
@@ -362,7 +369,7 @@ impl LatencyHistogram {
         }
 
         let average_ms = self.sum_ms as f64 / self.total_samples as f64;
-        
+
         // Calculate percentiles
         let mut sorted_samples = Vec::new();
         for (&bucket, &count) in &self.buckets {
@@ -439,9 +446,9 @@ impl ThroughputWindow {
 
         let total_sent: usize = self.samples.iter().map(|s| s.bytes_sent).sum();
         let total_received: usize = self.samples.iter().map(|s| s.bytes_received).sum();
-        
+
         let window_secs = self.window_size.as_secs_f64();
-        
+
         ThroughputStats {
             bytes_per_sec_sent: total_sent as f64 / window_secs,
             bytes_per_sec_received: total_received as f64 / window_secs,
@@ -457,26 +464,26 @@ pub struct MetricsSnapshot {
     pub connected_peers: usize,
     pub total_connections: u64,
     pub failed_connections: u64,
-    
+
     // Message metrics
     pub messages_sent: u64,
     pub messages_received: u64,
     pub bytes_sent: u64,
     pub bytes_received: u64,
-    
+
     // DAG metrics
     pub transactions_submitted: u64,
     pub nodes_validated: u64,
     pub validation_failures: u64,
-    
+
     // Performance metrics
     pub uptime_seconds: u64,
     pub last_update: u64,
-    
+
     // Derived metrics
     pub connection_success_rate: f64,
     pub validation_success_rate: f64,
-    
+
     // Latency and throughput
     pub latency_stats: LatencyStats,
     pub throughput_stats: ThroughputStats,
@@ -539,11 +546,11 @@ mod tests {
     #[test]
     fn test_network_metrics() {
         let metrics = NetworkMetrics::new();
-        
+
         metrics.peer_connected();
         metrics.peer_connected();
         metrics.connection_failed();
-        
+
         let snapshot = metrics.get_snapshot();
         assert_eq!(snapshot.connected_peers, 2);
         assert_eq!(snapshot.total_connections, 2);
@@ -554,11 +561,11 @@ mod tests {
     #[test]
     fn test_latency_histogram() {
         let mut histogram = LatencyHistogram::new();
-        
+
         histogram.record(Duration::from_millis(10));
         histogram.record(Duration::from_millis(20));
         histogram.record(Duration::from_millis(30));
-        
+
         let stats = histogram.get_stats();
         assert_eq!(stats.total_samples, 3);
         assert_eq!(stats.average_ms, 20.0);
@@ -567,11 +574,11 @@ mod tests {
     #[test]
     fn test_consensus_metrics() {
         let metrics = ConsensusMetrics::new();
-        
+
         metrics.vote_cast();
         metrics.vote_cast();
         metrics.node_finalized();
-        
+
         let stats = metrics.get_stats();
         assert_eq!(stats.votes_cast, 2);
         assert_eq!(stats.finalizations, 1);
@@ -581,7 +588,7 @@ mod tests {
     fn test_prometheus_format() {
         let metrics = NetworkMetrics::new();
         metrics.peer_connected();
-        
+
         let prometheus = metrics.to_prometheus();
         assert!(prometheus.contains("qudag_connected_peers 1"));
         assert!(prometheus.contains("# TYPE qudag_connected_peers gauge"));
@@ -590,10 +597,10 @@ mod tests {
     #[test]
     fn test_throughput_window() {
         let mut window = ThroughputWindow::new();
-        
+
         window.record_sent(1000);
         window.record_received(500);
-        
+
         let stats = window.get_stats();
         assert!(stats.bytes_per_sec_sent > 0.0);
         assert!(stats.bytes_per_sec_received > 0.0);

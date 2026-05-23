@@ -1,17 +1,17 @@
 //! QR-Avalanche Consensus Algorithm
-//! 
+//!
 //! Quantum-resistant adaptation of the Avalanche consensus protocol for DAG networks.
 //! Uses post-quantum cryptography and probabilistic finality.
 
+use dashmap::DashMap;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use parking_lot::Mutex;
-use dashmap::DashMap;
 
-use crate::{DAGNode, QuantumResistantCrypto, QuDAGError, Result};
+use crate::{DAGNode, QuDAGError, QuantumResistantCrypto, Result};
 
 /// QR-Avalanche consensus engine
 #[derive(Debug)]
@@ -29,7 +29,7 @@ impl QRAvalanche {
     /// Create a new QR-Avalanche consensus engine
     pub fn new(config: ConsensusConfig) -> Self {
         let (message_tx, message_rx) = mpsc::unbounded_channel();
-        
+
         Self {
             config,
             state: Arc::new(RwLock::new(ConsensusState::new())),
@@ -43,9 +43,12 @@ impl QRAvalanche {
 
     /// Start the consensus engine
     pub async fn start(&mut self) -> Result<()> {
-        let message_rx = self.message_rx.lock().take()
+        let message_rx = self
+            .message_rx
+            .lock()
+            .take()
             .ok_or(QuDAGError::ConsensusError("Already started".to_string()))?;
-        
+
         let state = Arc::clone(&self.state);
         let pending_votes = Arc::clone(&self.pending_votes);
         let finalized_nodes = Arc::clone(&self.finalized_nodes);
@@ -59,7 +62,8 @@ impl QRAvalanche {
                 pending_votes,
                 finalized_nodes,
                 config,
-            ).await;
+            )
+            .await;
         });
 
         tracing::info!("QR-Avalanche consensus engine started");
@@ -79,15 +83,18 @@ impl QRAvalanche {
     pub async fn validate_node(&self, node: &DAGNode) -> Result<()> {
         // Check node structure
         if node.parents().is_empty() && !self.is_genesis_allowed().await? {
-            return Err(QuDAGError::ValidationError("Non-genesis node must have parents".to_string()));
+            return Err(QuDAGError::ValidationError(
+                "Non-genesis node must have parents".to_string(),
+            ));
         }
 
         // Check parent validity
         for parent_id in node.parents() {
             if !self.is_node_finalized(*parent_id).await? {
-                return Err(QuDAGError::ValidationError(
-                    format!("Parent {} not finalized", parent_id)
-                ));
+                return Err(QuDAGError::ValidationError(format!(
+                    "Parent {} not finalized",
+                    parent_id
+                )));
             }
         }
 
@@ -101,7 +108,8 @@ impl QRAvalanche {
     pub async fn submit_vote(&self, node_id: Uuid, vote: Vote) -> Result<()> {
         if let Some(tx) = &self.message_tx {
             let message = ConsensusMessage::Vote { node_id, vote };
-            tx.send(message).map_err(|_| QuDAGError::ConsensusError("Channel closed".to_string()))?;
+            tx.send(message)
+                .map_err(|_| QuDAGError::ConsensusError("Channel closed".to_string()))?;
         }
         Ok(())
     }
@@ -135,7 +143,8 @@ impl QRAvalanche {
                         &pending_votes,
                         &finalized_nodes,
                         &config,
-                    ).await;
+                    )
+                    .await;
                 }
                 ConsensusMessage::Query { node_id, requester } => {
                     Self::process_query(node_id, requester, &state).await;
@@ -166,7 +175,11 @@ impl QRAvalanche {
             let mut state_guard = state.write().await;
             state_guard.finalized_count += 1;
 
-            tracing::debug!("Node {} finalized with {} votes", node_id, vote_set.positive_votes());
+            tracing::debug!(
+                "Node {} finalized with {} votes",
+                node_id,
+                vote_set.positive_votes()
+            );
         }
     }
 
@@ -177,7 +190,11 @@ impl QRAvalanche {
         state: &Arc<RwLock<ConsensusState>>,
     ) {
         // Implementation would depend on network layer for responding to queries
-        tracing::debug!("Received query for node {} from peer {}", node_id, requester);
+        tracing::debug!(
+            "Received query for node {} from peer {}",
+            node_id,
+            requester
+        );
     }
 }
 
@@ -224,7 +241,7 @@ impl ConsensusState {
 struct VoteSet {
     positive: usize,
     negative: usize,
-    voters: HashSet<libp2p::PeerId>,
+    voters: HashSet<String>,
 }
 
 impl VoteSet {
@@ -234,7 +251,7 @@ impl VoteSet {
 
     fn add_vote(&mut self, vote: Vote) {
         if !self.voters.contains(&vote.voter) {
-            self.voters.insert(vote.voter);
+            self.voters.insert(vote.voter.clone());
             if vote.preference {
                 self.positive += 1;
             } else {
@@ -255,7 +272,8 @@ impl VoteSet {
 /// A vote in the consensus process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Vote {
-    pub voter: libp2p::PeerId,
+    /// String representation of the voter PeerId for serialization compatibility
+    pub voter: String,
     pub preference: bool,
     pub timestamp: u64,
     pub signature: Vec<u8>,
@@ -276,9 +294,15 @@ pub enum ConsensusMessage {
 
 /// Trait for consensus engines
 pub trait ConsensusEngine: Send + Sync {
-    fn validate_node(&self, node: &DAGNode) -> impl std::future::Future<Output = Result<()>> + Send;
-    fn submit_vote(&self, node_id: Uuid, vote: Vote) -> impl std::future::Future<Output = Result<()>> + Send;
-    fn is_finalized(&self, node_id: Uuid) -> impl std::future::Future<Output = Result<bool>> + Send;
+    fn validate_node(&self, node: &DAGNode)
+        -> impl std::future::Future<Output = Result<()>> + Send;
+    fn submit_vote(
+        &self,
+        node_id: Uuid,
+        vote: Vote,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn is_finalized(&self, node_id: Uuid)
+        -> impl std::future::Future<Output = Result<bool>> + Send;
 }
 
 impl ConsensusEngine for QRAvalanche {
@@ -310,7 +334,7 @@ mod tests {
     async fn test_consensus_lifecycle() {
         let config = ConsensusConfig::default();
         let mut consensus = QRAvalanche::new(config);
-        
+
         assert!(consensus.start().await.is_ok());
         assert!(consensus.stop().await.is_ok());
     }
@@ -319,14 +343,14 @@ mod tests {
     fn test_vote_set() {
         let mut vote_set = VoteSet::new();
         let peer_id = libp2p::PeerId::random();
-        
+
         let vote = Vote {
-            voter: peer_id,
+            voter: peer_id.to_string(),
             preference: true,
             timestamp: 0,
             signature: vec![],
         };
-        
+
         vote_set.add_vote(vote);
         assert_eq!(vote_set.positive_votes(), 1);
         assert_eq!(vote_set.total_votes(), 1);

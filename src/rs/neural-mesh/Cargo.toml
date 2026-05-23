@@ -1,6 +1,6 @@
 [package]
 name = "neural-mesh"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["rUv <https://github.com/ruvnet>"]
 description = "Distributed neural cognition layer for Synaptic Neural Mesh"
@@ -73,10 +73,3 @@ gpu = ["ndarray-linalg", "ruv-fann/gpu"]
 neural-sync = []
 distributed-training = []
 
-[[bench]]
-name = "mesh_benchmarks"
-harness = false
-
-[[example]]
-name = "simple_mesh"
-path = "examples/simple_mesh.rs"

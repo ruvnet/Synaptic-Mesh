@@ -2,8 +2,8 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use tempfile::TempDir;
 use std::fs;
+use tempfile::TempDir;
 
 #[test]
 fn test_cli_help() {
@@ -32,7 +32,7 @@ fn test_cli_version() {
 fn test_node_init_command() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("node")
         .arg("init")
@@ -41,7 +41,7 @@ fn test_node_init_command() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Node initialized successfully"));
-    
+
     assert!(config_path.exists());
 }
 
@@ -59,7 +59,7 @@ fn test_node_start_without_config() {
 fn test_swarm_create_command() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
-    
+
     // Create a basic config
     let config = r#"
 [node]
@@ -70,7 +70,7 @@ port = 9090
 max_agents = 10
     "#;
     fs::write(&config_path, config).unwrap();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("swarm")
         .arg("create")
@@ -89,7 +89,7 @@ max_agents = 10
 fn test_neural_train_command() {
     let temp_dir = TempDir::new().unwrap();
     let data_path = temp_dir.path().join("training_data.json");
-    
+
     // Create training data
     let training_data = r#"
 {
@@ -98,7 +98,7 @@ fn test_neural_train_command() {
 }
     "#;
     fs::write(&data_path, training_data).unwrap();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("neural")
         .arg("train")
@@ -135,7 +135,7 @@ fn test_invalid_command() {
 fn test_environment_variables() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.env("SYNAPTIC_CONFIG", config_path.to_str().unwrap())
         .env("SYNAPTIC_LOG_LEVEL", "debug")
@@ -149,14 +149,14 @@ fn test_environment_variables() {
 fn test_config_validation() {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("invalid.toml");
-    
+
     // Create invalid config
     let invalid_config = r#"
 [node]
 # Missing required fields
     "#;
     fs::write(&config_path, invalid_config).unwrap();
-    
+
     let mut cmd = Command::cargo_bin("synaptic-mesh").unwrap();
     cmd.arg("node")
         .arg("start")

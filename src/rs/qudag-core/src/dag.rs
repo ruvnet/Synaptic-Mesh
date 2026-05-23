@@ -1,14 +1,14 @@
 //! DAG (Directed Acyclic Graph) data structures and operations
-//! 
+//!
 //! Implements the core DAG functionality including nodes, edges, validation,
 //! and network-wide DAG operations for the QuDAG system.
 
+use blake3::{Hash, Hasher};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use blake3::{Hash, Hasher};
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use crate::{PostQuantumSignature, QuDAGError, Result};
 
@@ -54,13 +54,13 @@ impl DAGNode {
     /// Compute the hash of this node
     pub fn compute_hash(&self) -> Vec<u8> {
         let mut hasher = Hasher::new();
-        hasher.update(&self.id.as_bytes());
+        hasher.update(self.id.as_bytes());
         hasher.update(&self.data);
         hasher.update(&self.timestamp.to_le_bytes());
         hasher.update(&self.nonce.to_le_bytes());
-        
+
         for parent in &self.parents {
-            hasher.update(&parent.as_bytes());
+            hasher.update(parent.as_bytes());
         }
 
         hasher.finalize().as_bytes().to_vec()
@@ -98,7 +98,8 @@ impl DAGNode {
 
     /// Calculate work done (for PoW if needed)
     pub fn work_done(&self) -> u32 {
-        self.hash.iter()
+        self.hash
+            .iter()
             .take(4)
             .fold(0u32, |acc, &byte| acc.wrapping_add(byte as u32))
     }
@@ -132,7 +133,7 @@ pub struct DAGNetwork {
     nodes: Arc<RwLock<HashMap<Uuid, DAGNode>>>,
     edges: Arc<RwLock<HashMap<Uuid, Vec<Uuid>>>>, // parent_id -> vec[child_ids]
     reverse_edges: Arc<RwLock<HashMap<Uuid, Vec<Uuid>>>>, // child_id -> vec[parent_ids]
-    tips: Arc<RwLock<HashSet<Uuid>>>, // nodes with no children
+    tips: Arc<RwLock<HashSet<Uuid>>>,             // nodes with no children
     validator: Arc<DAGValidation>,
 }
 
@@ -170,8 +171,14 @@ impl DAGNetwork {
 
             for parent_id in &parents {
                 // Add edge from parent to child
-                edges.entry(*parent_id).or_insert_with(Vec::new).push(node_id);
-                reverse_edges.entry(node_id).or_insert_with(Vec::new).push(*parent_id);
+                edges
+                    .entry(*parent_id)
+                    .or_insert_with(Vec::new)
+                    .push(node_id);
+                reverse_edges
+                    .entry(node_id)
+                    .or_insert_with(Vec::new)
+                    .push(*parent_id);
 
                 // Parent is no longer a tip
                 tips.remove(parent_id);
@@ -181,7 +188,11 @@ impl DAGNetwork {
             tips.insert(node_id);
         }
 
-        tracing::debug!("Added node {} to DAG with {} parents", node_id, parents.len());
+        tracing::debug!(
+            "Added node {} to DAG with {} parents",
+            node_id,
+            parents.len()
+        );
         Ok(())
     }
 
@@ -226,9 +237,11 @@ impl DAGNetwork {
 
         // Calculate in-degrees
         for node_id in nodes.keys() {
-            let degree = reverse_edges.get(node_id).map_or(0, |parents| parents.len());
+            let degree = reverse_edges
+                .get(node_id)
+                .map_or(0, |parents| parents.len());
             in_degree.insert(*node_id, degree);
-            
+
             if degree == 0 {
                 queue.push_back(*node_id);
             }
@@ -252,7 +265,9 @@ impl DAGNetwork {
         }
 
         if result.len() != nodes.len() {
-            return Err(QuDAGError::ValidationError("DAG contains cycles".to_string()));
+            return Err(QuDAGError::ValidationError(
+                "DAG contains cycles".to_string(),
+            ));
         }
 
         Ok(result)
@@ -352,17 +367,20 @@ impl DAGValidation {
 
         // Check parent count
         if node.parents.len() > self.max_parents {
-            return Err(QuDAGError::ValidationError(
-                format!("Too many parents: {} > {}", node.parents.len(), self.max_parents)
-            ));
+            return Err(QuDAGError::ValidationError(format!(
+                "Too many parents: {} > {}",
+                node.parents.len(),
+                self.max_parents
+            )));
         }
 
         // Validate parents exist
         for parent_id in &node.parents {
             if dag.get_node(*parent_id).await.is_none() {
-                return Err(QuDAGError::ValidationError(
-                    format!("Parent {} does not exist", parent_id)
-                ));
+                return Err(QuDAGError::ValidationError(format!(
+                    "Parent {} does not exist",
+                    parent_id
+                )));
             }
         }
 
@@ -371,7 +389,7 @@ impl DAGValidation {
             if let Some(parent) = dag.get_node(*parent_id).await {
                 if node.timestamp <= parent.timestamp + self.min_timestamp_diff {
                     return Err(QuDAGError::ValidationError(
-                        "Node timestamp must be after parent timestamps".to_string()
+                        "Node timestamp must be after parent timestamps".to_string(),
                     ));
                 }
             }
@@ -379,9 +397,10 @@ impl DAGValidation {
 
         // Check for duplicate nodes
         if dag.get_node(node.id).await.is_some() {
-            return Err(QuDAGError::ValidationError(
-                format!("Node {} already exists", node.id)
-            ));
+            return Err(QuDAGError::ValidationError(format!(
+                "Node {} already exists",
+                node.id
+            )));
         }
 
         Ok(())
@@ -391,7 +410,9 @@ impl DAGValidation {
     pub async fn validate_dag(&self, dag: &DAGNetwork) -> Result<()> {
         // Check for cycles
         if !dag.is_valid().await {
-            return Err(QuDAGError::ValidationError("DAG contains cycles".to_string()));
+            return Err(QuDAGError::ValidationError(
+                "DAG contains cycles".to_string(),
+            ));
         }
 
         // Validate each node
@@ -426,7 +447,7 @@ mod tests {
     async fn test_dag_node_creation() {
         let data = b"test data".to_vec();
         let node = DAGNode::new(Uuid::new_v4(), data, Vec::new());
-        
+
         assert!(node.verify_hash());
         assert!(node.is_genesis());
     }
@@ -434,28 +455,28 @@ mod tests {
     #[tokio::test]
     async fn test_dag_network() {
         let mut dag = DAGNetwork::new();
-        
+
         // Add genesis node
         let genesis_data = b"genesis".to_vec();
         let genesis = DAGNode::genesis(genesis_data);
         let genesis_id = genesis.id;
-        
+
         assert!(dag.add_node(genesis).await.is_ok());
-        
+
         // Add child node
         let child_data = b"child".to_vec();
         let child = DAGNode::new(Uuid::new_v4(), child_data, vec![genesis_id]);
         let child_id = child.id;
-        
+
         assert!(dag.add_node(child).await.is_ok());
-        
+
         // Check relationships
         let children = dag.get_children(genesis_id).await;
         assert_eq!(children, vec![child_id]);
-        
+
         let parents = dag.get_parents(child_id).await;
         assert_eq!(parents, vec![genesis_id]);
-        
+
         // Check tips
         let tips = dag.get_tips().await;
         assert_eq!(tips, vec![child_id]);
@@ -464,27 +485,27 @@ mod tests {
     #[tokio::test]
     async fn test_topological_ordering() {
         let mut dag = DAGNetwork::new();
-        
+
         // Create a simple linear DAG: A -> B -> C
         let node_a = DAGNode::genesis(b"A".to_vec());
         let id_a = node_a.id;
         dag.add_node(node_a).await.unwrap();
-        
+
         let node_b = DAGNode::new(Uuid::new_v4(), b"B".to_vec(), vec![id_a]);
         let id_b = node_b.id;
         dag.add_node(node_b).await.unwrap();
-        
+
         let node_c = DAGNode::new(Uuid::new_v4(), b"C".to_vec(), vec![id_b]);
         let id_c = node_c.id;
         dag.add_node(node_c).await.unwrap();
-        
+
         let topo_order = dag.get_topological_order().await.unwrap();
-        
+
         // A should come before B, B before C
         let pos_a = topo_order.iter().position(|&x| x == id_a).unwrap();
         let pos_b = topo_order.iter().position(|&x| x == id_b).unwrap();
         let pos_c = topo_order.iter().position(|&x| x == id_c).unwrap();
-        
+
         assert!(pos_a < pos_b);
         assert!(pos_b < pos_c);
     }
@@ -493,7 +514,7 @@ mod tests {
     async fn test_dag_validation() {
         let dag = DAGNetwork::new();
         let validator = DAGValidation::new();
-        
+
         // Test valid genesis node
         let genesis = DAGNode::genesis(b"genesis".to_vec());
         assert!(validator.validate_node(&genesis, &dag).await.is_ok());
@@ -503,11 +524,11 @@ mod tests {
     fn test_node_hash_verification() {
         let mut node = DAGNode::genesis(b"test".to_vec());
         assert!(node.verify_hash());
-        
+
         // Tamper with data
         node.data.push(42);
         assert!(!node.verify_hash());
-        
+
         // Recompute hash
         node.hash = node.compute_hash();
         assert!(node.verify_hash());

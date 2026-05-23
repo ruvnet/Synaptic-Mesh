@@ -1,34 +1,28 @@
 //! P2P networking layer for QuDAG
-//! 
+//!
 //! Implements peer-to-peer networking using libp2p with support for
 //! peer discovery, message routing, and DAG synchronization.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, ValidationMode},
-    identify,
-    kad::{self, record::Key, Kademlia, KademliaEvent},
-    mdns,
+    identify, kad, mdns,
     multiaddr::Multiaddr,
-    noise,
-    ping,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp,
-    yamux,
-    PeerId, Swarm, Transport,
+    noise, ping,
+    swarm::SwarmEvent,
+    tcp, yamux, PeerId, Swarm, SwarmBuilder,
 };
+use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
-use crate::{DAGNode, QuDAGError, Result};
+use crate::{DAGNode, QuDAGError};
 
 /// QuDAG network manager
-#[derive(Debug)]
 pub struct QuDAGNetwork {
     swarm: Swarm<NetworkBehavior>,
     event_sender: mpsc::UnboundedSender<NetworkEvent>,
@@ -37,29 +31,45 @@ pub struct QuDAGNetwork {
     message_cache: Arc<RwLock<HashMap<String, CachedMessage>>>,
 }
 
+impl std::fmt::Debug for QuDAGNetwork {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QuDAGNetwork")
+            .field("local_peer_id", &self.swarm.local_peer_id())
+            .finish()
+    }
+}
+
 impl QuDAGNetwork {
     /// Create a new QuDAG network
     pub async fn new(
         listen_addr: Multiaddr,
         keypair: libp2p::identity::Keypair,
-    ) -> Result<Self> {
-        // Build transport
-        let transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
-            .upgrade(libp2p::core::upgrade::Version::V1)
-            .authenticate(noise::NoiseAuthenticated::xx(&keypair)?)
-            .multiplex(yamux::YamuxConfig::default())
-            .boxed();
+    ) -> crate::Result<Self> {
+        let peer_id = keypair.public().to_peer_id();
 
-        // Create network behavior
         let behavior = NetworkBehavior::new(&keypair).await?;
 
-        // Create swarm
-        let mut swarm = Swarm::with_tokio_executor(transport, behavior, keypair.public().to_peer_id());
-        swarm.listen_on(listen_addr)?;
+        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_tcp(
+                tcp::Config::default().nodelay(true),
+                noise::Config::new,
+                yamux::Config::default,
+            )
+            .map_err(|e| QuDAGError::NetworkError(format!("Transport error: {}", e)))?
+            .with_behaviour(|_| Ok(behavior))
+            .map_err(|e| QuDAGError::NetworkError(format!("Behaviour error: {}", e)))?
+            .build();
+
+        swarm
+            .listen_on(listen_addr)
+            .map_err(|e| QuDAGError::NetworkError(format!("Listen error: {}", e)))?;
 
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
         let peer_manager = Arc::new(RwLock::new(PeerManager::new()));
         let message_cache = Arc::new(RwLock::new(HashMap::new()));
+
+        let _ = peer_id;
 
         Ok(Self {
             swarm,
@@ -71,9 +81,15 @@ impl QuDAGNetwork {
     }
 
     /// Start the network
-    pub async fn start(&mut self) -> Result<()> {
-        let event_receiver = self.event_receiver.write().await.take()
-            .ok_or(QuDAGError::NetworkError("Network already started".to_string()))?;
+    pub async fn start(&mut self) -> crate::Result<()> {
+        let event_receiver =
+            self.event_receiver
+                .write()
+                .await
+                .take()
+                .ok_or(QuDAGError::NetworkError(
+                    "Network already started".to_string(),
+                ))?;
 
         let peer_manager = Arc::clone(&self.peer_manager);
         let message_cache = Arc::clone(&self.message_cache);
@@ -83,30 +99,22 @@ impl QuDAGNetwork {
             Self::process_network_events(event_receiver, peer_manager, message_cache).await;
         });
 
-        // Start the main network loop
-        tokio::spawn(async move {
-            // This would be the main swarm polling loop
-            // For brevity, this is simplified
-        });
-
         tracing::info!("QuDAG network started");
         Ok(())
     }
 
     /// Stop the network
-    pub async fn stop(&mut self) -> Result<()> {
-        // Implementation would gracefully shut down network connections
+    pub async fn stop(&mut self) -> crate::Result<()> {
         tracing::info!("QuDAG network stopped");
         Ok(())
     }
 
     /// Broadcast a DAG node to all peers
-    pub async fn broadcast_dag_node(&mut self, node: DAGNode) -> Result<()> {
+    pub async fn broadcast_dag_node(&mut self, node: DAGNode) -> crate::Result<()> {
         let message = NetworkMessage::DAGNode(node);
         let serialized = bincode::serialize(&message)
             .map_err(|e| QuDAGError::NetworkError(format!("Serialization error: {}", e)))?;
 
-        // Publish to gossipsub topic
         self.swarm
             .behaviour_mut()
             .gossipsub
@@ -117,7 +125,7 @@ impl QuDAGNetwork {
     }
 
     /// Request a DAG node from peers
-    pub async fn request_dag_node(&mut self, node_id: Uuid) -> Result<()> {
+    pub async fn request_dag_node(&mut self, node_id: Uuid) -> crate::Result<()> {
         let message = NetworkMessage::DAGNodeRequest(node_id);
         let serialized = bincode::serialize(&message)
             .map_err(|e| QuDAGError::NetworkError(format!("Serialization error: {}", e)))?;
@@ -132,8 +140,9 @@ impl QuDAGNetwork {
     }
 
     /// Connect to a peer
-    pub async fn connect_peer(&mut self, peer_addr: Multiaddr) -> Result<()> {
-        self.swarm.dial(peer_addr)
+    pub async fn connect_peer(&mut self, peer_addr: Multiaddr) -> crate::Result<()> {
+        self.swarm
+            .dial(peer_addr)
             .map_err(|e| QuDAGError::NetworkError(format!("Connection error: {}", e)))?;
         Ok(())
     }
@@ -177,7 +186,6 @@ impl QuDAGNetwork {
                 }
                 NetworkEvent::DAGNodeReceived(node) => {
                     tracing::debug!("Received DAG node: {}", node.id);
-                    // This would trigger DAG validation and storage
                 }
             }
         }
@@ -187,24 +195,24 @@ impl QuDAGNetwork {
     async fn handle_message(
         from: PeerId,
         message: NetworkMessage,
-        message_cache: &Arc<RwLock<HashMap<String, CachedMessage>>>,
+        _message_cache: &Arc<RwLock<HashMap<String, CachedMessage>>>,
     ) {
         match message {
             NetworkMessage::DAGNode(node) => {
                 tracing::debug!("Received DAG node {} from {}", node.id, from);
-                // Validate and process DAG node
             }
             NetworkMessage::DAGNodeRequest(node_id) => {
                 tracing::debug!("Received DAG node request for {} from {}", node_id, from);
-                // Look up and respond with DAG node if available
             }
-            NetworkMessage::ConsensusVote { node_id, vote } => {
+            NetworkMessage::ConsensusVote { node_id, vote: _ } => {
                 tracing::debug!("Received consensus vote for {} from {}", node_id, from);
-                // Process consensus vote
             }
             NetworkMessage::PeerDiscovery(peer_info) => {
-                tracing::debug!("Received peer discovery from {}", from);
-                // Update peer information
+                tracing::debug!(
+                    "Received peer discovery {} from {}",
+                    peer_info.peer_id_str,
+                    from
+                );
             }
         }
     }
@@ -215,19 +223,20 @@ impl QuDAGNetwork {
 #[behaviour(to_swarm = "NetworkBehaviorEvent")]
 pub struct NetworkBehavior {
     pub gossipsub: gossipsub::Behaviour,
-    pub kad: Kademlia<kad::store::MemoryStore>,
+    pub kad: kad::Behaviour<kad::store::MemoryStore>,
     pub identify: identify::Behaviour,
     pub ping: ping::Behaviour,
     pub mdns: mdns::tokio::Behaviour,
 }
 
 impl NetworkBehavior {
-    pub async fn new(keypair: &libp2p::identity::Keypair) -> Result<Self> {
+    pub async fn new(keypair: &libp2p::identity::Keypair) -> crate::Result<Self> {
+        let peer_id = keypair.public().to_peer_id();
+
         // Configure Gossipsub
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
             .validation_mode(ValidationMode::Strict)
-            .message_authenticity(MessageAuthenticity::Signed(keypair.clone()))
             .build()
             .map_err(|e| QuDAGError::NetworkError(format!("Gossipsub config error: {}", e)))?;
 
@@ -238,16 +247,19 @@ impl NetworkBehavior {
         .map_err(|e| QuDAGError::NetworkError(format!("Gossipsub creation error: {}", e)))?;
 
         // Subscribe to topics
-        gossipsub.subscribe(&IdentTopic::new("qudag-dag-nodes"))
+        gossipsub
+            .subscribe(&IdentTopic::new("qudag-dag-nodes"))
             .map_err(|e| QuDAGError::NetworkError(format!("Topic subscription error: {}", e)))?;
-        gossipsub.subscribe(&IdentTopic::new("qudag-requests"))
+        gossipsub
+            .subscribe(&IdentTopic::new("qudag-requests"))
             .map_err(|e| QuDAGError::NetworkError(format!("Topic subscription error: {}", e)))?;
-        gossipsub.subscribe(&IdentTopic::new("qudag-consensus"))
+        gossipsub
+            .subscribe(&IdentTopic::new("qudag-consensus"))
             .map_err(|e| QuDAGError::NetworkError(format!("Topic subscription error: {}", e)))?;
 
         // Configure Kademlia DHT
-        let kad_store = kad::store::MemoryStore::new(keypair.public().to_peer_id());
-        let kad = Kademlia::new(keypair.public().to_peer_id(), kad_store);
+        let kad_store = kad::store::MemoryStore::new(peer_id);
+        let kad = kad::Behaviour::new(peer_id, kad_store);
 
         // Configure Identify
         let identify = identify::Behaviour::new(identify::Config::new(
@@ -259,7 +271,7 @@ impl NetworkBehavior {
         let ping = ping::Behaviour::new(ping::Config::new());
 
         // Configure mDNS for local discovery
-        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), keypair.public().to_peer_id())
+        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
             .map_err(|e| QuDAGError::NetworkError(format!("mDNS creation error: {}", e)))?;
 
         Ok(Self {
@@ -276,7 +288,7 @@ impl NetworkBehavior {
 #[derive(Debug)]
 pub enum NetworkBehaviorEvent {
     Gossipsub(gossipsub::Event),
-    Kad(KademliaEvent),
+    Kad(kad::Event),
     Identify(identify::Event),
     Ping(ping::Event),
     Mdns(mdns::Event),
@@ -288,8 +300,8 @@ impl From<gossipsub::Event> for NetworkBehaviorEvent {
     }
 }
 
-impl From<KademliaEvent> for NetworkBehaviorEvent {
-    fn from(event: KademliaEvent) -> Self {
+impl From<kad::Event> for NetworkBehaviorEvent {
+    fn from(event: kad::Event) -> Self {
         NetworkBehaviorEvent::Kad(event)
     }
 }
@@ -324,6 +336,15 @@ pub enum NetworkEvent {
     DAGNodeReceived(DAGNode),
 }
 
+/// Serializable peer discovery info (string peer_id for serde compatibility)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializablePeerInfo {
+    pub peer_id_str: String,
+    pub addresses: Vec<String>,
+    pub protocols: Vec<String>,
+    pub agent_version: String,
+}
+
 /// Network messages
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkMessage {
@@ -333,11 +354,11 @@ pub enum NetworkMessage {
         node_id: Uuid,
         vote: crate::consensus::Vote,
     },
-    PeerDiscovery(PeerInfo),
+    PeerDiscovery(SerializablePeerInfo),
 }
 
 /// Peer information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub addresses: Vec<Multiaddr>,
@@ -384,6 +405,12 @@ impl PeerManager {
     }
 }
 
+impl Default for PeerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Cached network message
 #[derive(Debug, Clone)]
 struct CachedMessage {
@@ -408,7 +435,7 @@ mod tests {
     async fn test_network_creation() {
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         let listen_addr: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().unwrap();
-        
+
         let network = QuDAGNetwork::new(listen_addr, keypair).await;
         assert!(network.is_ok());
     }
@@ -417,12 +444,12 @@ mod tests {
     async fn test_peer_manager() {
         let mut manager = PeerManager::new();
         let peer_id = PeerId::random();
-        
+
         assert_eq!(manager.connected_peers().len(), 0);
-        
+
         manager.add_peer(peer_id);
         assert_eq!(manager.connected_peers().len(), 1);
-        
+
         manager.remove_peer(&peer_id);
         assert_eq!(manager.connected_peers().len(), 0);
     }
@@ -431,10 +458,10 @@ mod tests {
     fn test_network_message_serialization() {
         let node = DAGNode::genesis(b"test".to_vec());
         let message = NetworkMessage::DAGNode(node);
-        
+
         let serialized = bincode::serialize(&message).unwrap();
         let deserialized: NetworkMessage = bincode::deserialize(&serialized).unwrap();
-        
+
         match deserialized {
             NetworkMessage::DAGNode(n) => assert_eq!(n.data, b"test"),
             _ => panic!("Wrong message type"),

@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc;
+use async_recursion::async_recursion;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 
 /// Self-organizing patterns for autonomous mesh behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,11 +27,25 @@ pub struct EmergenceRule {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmergenceCondition {
-    ThresholdReached { metric: String, threshold: f64 },
-    PatternDetected { pattern: String, confidence: f64 },
-    TimeElapsed { duration_ms: u64 },
-    EventOccurred { event_type: String, count: u32 },
-    Composite { conditions: Vec<EmergenceCondition>, operator: LogicalOperator },
+    ThresholdReached {
+        metric: String,
+        threshold: f64,
+    },
+    PatternDetected {
+        pattern: String,
+        confidence: f64,
+    },
+    TimeElapsed {
+        duration_ms: u64,
+    },
+    EventOccurred {
+        event_type: String,
+        count: u32,
+    },
+    Composite {
+        conditions: Vec<EmergenceCondition>,
+        operator: LogicalOperator,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,12 +57,27 @@ pub enum LogicalOperator {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmergenceAction {
-    FormCluster { min_size: usize, max_size: usize },
-    SplitCluster { cluster_id: String },
-    ElectLeader { selection_criteria: LeaderSelectionCriteria },
-    MigrateNodes { from_cluster: String, to_cluster: String, count: usize },
-    AdaptTopology { new_pattern: OrganizationPattern },
-    TriggerEvolution { intensity: f64 },
+    FormCluster {
+        min_size: usize,
+        max_size: usize,
+    },
+    SplitCluster {
+        cluster_id: String,
+    },
+    ElectLeader {
+        selection_criteria: LeaderSelectionCriteria,
+    },
+    MigrateNodes {
+        from_cluster: String,
+        to_cluster: String,
+        count: usize,
+    },
+    AdaptTopology {
+        new_pattern: OrganizationPattern,
+    },
+    TriggerEvolution {
+        intensity: f64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +154,11 @@ pub struct ClusteringEngine {
 /// Trait for clustering algorithms
 #[async_trait]
 pub trait ClusteringAlgorithm: Send + Sync {
-    async fn cluster(&self, nodes: &[NodeInfo], constraints: &ClusteringConstraints) -> Vec<NodeCluster>;
+    async fn cluster(
+        &self,
+        nodes: &[NodeInfo],
+        constraints: &ClusteringConstraints,
+    ) -> Vec<NodeCluster>;
     fn name(&self) -> &str;
 }
 
@@ -179,7 +212,7 @@ impl SelfOrganizingSystem {
     /// Initialize emergence rules
     pub async fn initialize_rules(&self) {
         let mut rules = self.emergence_rules.write().unwrap();
-        
+
         // Rule: Form clusters when node density is high
         rules.push(EmergenceRule {
             id: "density_clustering".to_string(),
@@ -195,7 +228,7 @@ impl SelfOrganizingSystem {
             activation_count: 0,
             success_rate: 0.0,
         });
-        
+
         // Rule: Elect leader when cluster lacks one
         rules.push(EmergenceRule {
             id: "leader_election".to_string(),
@@ -215,7 +248,7 @@ impl SelfOrganizingSystem {
             activation_count: 0,
             success_rate: 0.0,
         });
-        
+
         // Rule: Split large clusters
         rules.push(EmergenceRule {
             id: "cluster_fission".to_string(),
@@ -230,7 +263,7 @@ impl SelfOrganizingSystem {
             activation_count: 0,
             success_rate: 0.0,
         });
-        
+
         // Rule: Adapt topology based on performance
         rules.push(EmergenceRule {
             id: "topology_adaptation".to_string(),
@@ -259,20 +292,20 @@ impl SelfOrganizingSystem {
     pub async fn organize(&self, nodes: Vec<NodeInfo>, context: &OrganizationContext) {
         // Update stigmergy
         self.stigmergy.update().await;
-        
+
         // Check emergence rules
         let triggered_rules = self.check_emergence_rules(context).await;
-        
+
         // Execute triggered rules
         for rule in triggered_rules {
             self.execute_emergence_action(&rule, &nodes, context).await;
         }
-        
+
         // Perform clustering if needed
         if self.should_recluster(context) {
             self.perform_clustering(nodes, context).await;
         }
-        
+
         // Update metrics
         self.update_metrics().await;
     }
@@ -281,98 +314,122 @@ impl SelfOrganizingSystem {
     async fn check_emergence_rules(&self, context: &OrganizationContext) -> Vec<EmergenceRule> {
         let rules = self.emergence_rules.read().unwrap();
         let mut triggered = Vec::new();
-        
+
         for rule in rules.iter() {
             if self.evaluate_condition(&rule.condition, context).await {
                 triggered.push(rule.clone());
             }
         }
-        
+
         // Sort by priority
         triggered.sort_by_key(|r| std::cmp::Reverse(r.priority));
         triggered
     }
 
     /// Evaluate emergence condition
-    async fn evaluate_condition(&self, condition: &EmergenceCondition, context: &OrganizationContext) -> bool {
+    #[async_recursion]
+    async fn evaluate_condition(
+        &self,
+        condition: &EmergenceCondition,
+        context: &OrganizationContext,
+    ) -> bool {
         match condition {
-            EmergenceCondition::ThresholdReached { metric, threshold } => {
-                context.metrics.get(metric).map_or(false, |&value| value >= *threshold)
-            },
-            EmergenceCondition::PatternDetected { pattern, confidence } => {
-                context.detected_patterns.get(pattern).map_or(false, |&conf| conf >= *confidence)
-            },
+            EmergenceCondition::ThresholdReached { metric, threshold } => context
+                .metrics
+                .get(metric)
+                .map_or(false, |&value| value >= *threshold),
+            EmergenceCondition::PatternDetected {
+                pattern,
+                confidence,
+            } => context
+                .detected_patterns
+                .get(pattern)
+                .map_or(false, |&conf| conf >= *confidence),
             EmergenceCondition::TimeElapsed { duration_ms } => {
                 let elapsed = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_millis() as u64 - context.last_organization_time;
+                    .as_millis() as u64
+                    - context.last_organization_time;
                 elapsed >= *duration_ms
-            },
-            EmergenceCondition::EventOccurred { event_type, count } => {
-                context.event_counts.get(event_type).map_or(false, |&c| c >= *count)
-            },
-            EmergenceCondition::Composite { conditions, operator } => {
-                match operator {
-                    LogicalOperator::And => {
-                        for cond in conditions {
-                            if !self.evaluate_condition(cond, context).await {
-                                return false;
-                            }
+            }
+            EmergenceCondition::EventOccurred { event_type, count } => context
+                .event_counts
+                .get(event_type)
+                .map_or(false, |&c| c >= *count),
+            EmergenceCondition::Composite {
+                conditions,
+                operator,
+            } => match operator {
+                LogicalOperator::And => {
+                    for cond in conditions {
+                        if !self.evaluate_condition(cond, context).await {
+                            return false;
                         }
-                        true
-                    },
-                    LogicalOperator::Or => {
-                        for cond in conditions {
-                            if self.evaluate_condition(cond, context).await {
-                                return true;
-                            }
+                    }
+                    true
+                }
+                LogicalOperator::Or => {
+                    for cond in conditions {
+                        if self.evaluate_condition(cond, context).await {
+                            return true;
                         }
-                        false
-                    },
-                    LogicalOperator::Not => {
-                        conditions.len() == 1 && !self.evaluate_condition(&conditions[0], context).await
-                    },
+                    }
+                    false
+                }
+                LogicalOperator::Not => {
+                    conditions.len() == 1 && !self.evaluate_condition(&conditions[0], context).await
                 }
             },
         }
     }
 
     /// Execute emergence action
-    async fn execute_emergence_action(&self, rule: &EmergenceRule, nodes: &[NodeInfo], context: &OrganizationContext) {
+    async fn execute_emergence_action(
+        &self,
+        rule: &EmergenceRule,
+        nodes: &[NodeInfo],
+        context: &OrganizationContext,
+    ) {
         let mut rules = self.emergence_rules.write().unwrap();
         if let Some(rule_mut) = rules.iter_mut().find(|r| r.id == rule.id) {
             rule_mut.activation_count += 1;
         }
-        
+
         match &rule.action {
             EmergenceAction::FormCluster { min_size, max_size } => {
                 self.form_cluster(nodes, *min_size, *max_size).await;
-            },
+            }
             EmergenceAction::SplitCluster { .. } => {
-                // Find large clusters and split them
-                let clusters = self.clusters.read().unwrap();
-                for (cluster_id, cluster) in clusters.iter() {
-                    if cluster.members.len() > 50 {
-                        drop(clusters);
-                        self.split_cluster(cluster_id).await;
-                        break;
-                    }
+                // Find large clusters and split them; collect IDs first to avoid holding the lock
+                let large_cluster_id: Option<String> = {
+                    let clusters = self.clusters.read().unwrap();
+                    clusters
+                        .iter()
+                        .find(|(_, cluster)| cluster.members.len() > 50)
+                        .map(|(id, _)| id.clone())
+                };
+                if let Some(cluster_id) = large_cluster_id {
+                    self.split_cluster(&cluster_id).await;
                 }
-            },
+            }
             EmergenceAction::ElectLeader { selection_criteria } => {
                 self.elect_leaders(selection_criteria).await;
-            },
-            EmergenceAction::MigrateNodes { from_cluster, to_cluster, count } => {
+            }
+            EmergenceAction::MigrateNodes {
+                from_cluster,
+                to_cluster,
+                count,
+            } => {
                 self.migrate_nodes(from_cluster, to_cluster, *count).await;
-            },
+            }
             EmergenceAction::AdaptTopology { new_pattern } => {
                 *self.organization_pattern.write().unwrap() = new_pattern.clone();
-            },
+            }
             EmergenceAction::TriggerEvolution { intensity } => {
                 // Trigger evolutionary process with given intensity
                 tracing::info!("Triggering evolution with intensity {}", intensity);
-            },
+            }
         }
     }
 
@@ -385,9 +442,9 @@ impl SelfOrganizingSystem {
             similarity_threshold: 0.6,
             geographic_constraint: false,
         };
-        
+
         let new_clusters = self.clustering_engine.cluster(nodes, &constraints).await;
-        
+
         let mut clusters = self.clusters.write().unwrap();
         for cluster in new_clusters {
             clusters.insert(cluster.id.clone(), cluster);
@@ -397,11 +454,11 @@ impl SelfOrganizingSystem {
     /// Split a cluster into smaller ones
     async fn split_cluster(&self, cluster_id: &str) {
         let mut clusters = self.clusters.write().unwrap();
-        
+
         if let Some(cluster) = clusters.remove(cluster_id) {
             let members: Vec<String> = cluster.members.into_iter().collect();
             let mid = members.len() / 2;
-            
+
             // Create two new clusters
             let cluster1 = NodeCluster {
                 id: format!("{}_1", cluster_id),
@@ -415,7 +472,7 @@ impl SelfOrganizingSystem {
                 performance_metrics: ClusterMetrics::default(),
                 internal_topology: OrganizationPattern::Flat,
             };
-            
+
             let cluster2 = NodeCluster {
                 id: format!("{}_2", cluster_id),
                 members: members[mid..].iter().cloned().collect(),
@@ -428,7 +485,7 @@ impl SelfOrganizingSystem {
                 performance_metrics: ClusterMetrics::default(),
                 internal_topology: OrganizationPattern::Flat,
             };
-            
+
             clusters.insert(cluster1.id.clone(), cluster1);
             clusters.insert(cluster2.id.clone(), cluster2);
         }
@@ -437,7 +494,7 @@ impl SelfOrganizingSystem {
     /// Elect leaders for leaderless clusters
     async fn elect_leaders(&self, criteria: &LeaderSelectionCriteria) {
         let mut clusters = self.clusters.write().unwrap();
-        
+
         for cluster in clusters.values_mut() {
             if cluster.leader.is_none() && !cluster.members.is_empty() {
                 // Simple leader election based on node ID (in real implementation, use criteria)
@@ -449,7 +506,7 @@ impl SelfOrganizingSystem {
     /// Migrate nodes between clusters
     async fn migrate_nodes(&self, from_cluster: &str, to_cluster: &str, count: usize) {
         let mut clusters = self.clusters.write().unwrap();
-        
+
         let nodes_to_migrate: Vec<String> = {
             if let Some(from) = clusters.get(from_cluster) {
                 from.members.iter().take(count).cloned().collect()
@@ -457,14 +514,14 @@ impl SelfOrganizingSystem {
                 return;
             }
         };
-        
+
         // Remove from source cluster
         if let Some(from) = clusters.get_mut(from_cluster) {
             for node in &nodes_to_migrate {
                 from.members.remove(node);
             }
         }
-        
+
         // Add to destination cluster
         if let Some(to) = clusters.get_mut(to_cluster) {
             for node in nodes_to_migrate {
@@ -475,7 +532,10 @@ impl SelfOrganizingSystem {
 
     /// Check if reclustering is needed
     fn should_recluster(&self, context: &OrganizationContext) -> bool {
-        context.metrics.get("clustering_quality").map_or(false, |&quality| quality < 0.5)
+        context
+            .metrics
+            .get("clustering_quality")
+            .map_or(false, |&quality| quality < 0.5)
             || context.significant_change_detected
     }
 
@@ -488,9 +548,9 @@ impl SelfOrganizingSystem {
             similarity_threshold: 0.7,
             geographic_constraint: context.use_geographic_clustering,
         };
-        
+
         let new_clusters = self.clustering_engine.cluster(&nodes, &constraints).await;
-        
+
         let mut clusters = self.clusters.write().unwrap();
         clusters.clear();
         for cluster in new_clusters {
@@ -502,22 +562,22 @@ impl SelfOrganizingSystem {
     async fn update_metrics(&self) {
         let clusters = self.clusters.read().unwrap();
         let mut metrics = self.metrics.write().unwrap();
-        
+
         metrics.total_clusters = clusters.len();
-        
+
         if !clusters.is_empty() {
             let total_members: usize = clusters.values().map(|c| c.members.len()).sum();
             metrics.average_cluster_size = total_members as f64 / clusters.len() as f64;
         }
-        
+
         // Calculate organization stability (simplified)
         metrics.organization_stability = 0.9; // Placeholder
-        
+
         // Calculate emergence rate
         let rules = self.emergence_rules.read().unwrap();
         let total_activations: u64 = rules.iter().map(|r| r.activation_count).sum();
         metrics.emergence_rate = total_activations as f64 / rules.len().max(1) as f64;
-        
+
         // Calculate stigmergy effectiveness
         metrics.stigmergy_effectiveness = self.stigmergy.get_effectiveness().await;
     }
@@ -576,10 +636,13 @@ impl Stigmergy {
 
     pub async fn sense(&self, position: &[f64], radius: f64) -> Vec<Pheromone> {
         let pheromones = self.pheromones.read().unwrap();
-        
-        pheromones.values()
+
+        pheromones
+            .values()
             .filter(|p| {
-                let distance = p.position.iter()
+                let distance = p
+                    .position
+                    .iter()
                     .zip(position.iter())
                     .map(|(a, b)| (a - b).powi(2))
                     .sum::<f64>()
@@ -596,14 +659,14 @@ impl Stigmergy {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Evaporate pheromones
         pheromones.retain(|_, p| {
             let age = current_time - p.timestamp;
             let evaporation_factor = (-self.evaporation_rate * age as f64).exp();
             p.intensity * evaporation_factor > 0.01
         });
-        
+
         // Update intensities
         for pheromone in pheromones.values_mut() {
             let age = current_time - pheromone.timestamp;
@@ -617,7 +680,7 @@ impl Stigmergy {
         if pheromones.is_empty() {
             return 0.0;
         }
-        
+
         let total_intensity: f64 = pheromones.values().map(|p| p.intensity).sum();
         (total_intensity / pheromones.len() as f64).min(1.0)
     }
@@ -629,15 +692,23 @@ impl ClusteringEngine {
             algorithms: HashMap::new(),
             active_algorithm: "k-means".to_string(),
         };
-        
+
         // Register default algorithms
-        engine.algorithms.insert("k-means".to_string(), Box::new(KMeansAlgorithm));
-        engine.algorithms.insert("hierarchical".to_string(), Box::new(HierarchicalAlgorithm));
-        
+        engine
+            .algorithms
+            .insert("k-means".to_string(), Box::new(KMeansAlgorithm));
+        engine
+            .algorithms
+            .insert("hierarchical".to_string(), Box::new(HierarchicalAlgorithm));
+
         engine
     }
 
-    pub async fn cluster(&self, nodes: &[NodeInfo], constraints: &ClusteringConstraints) -> Vec<NodeCluster> {
+    pub async fn cluster(
+        &self,
+        nodes: &[NodeInfo],
+        constraints: &ClusteringConstraints,
+    ) -> Vec<NodeCluster> {
         if let Some(algorithm) = self.algorithms.get(&self.active_algorithm) {
             algorithm.cluster(nodes, constraints).await
         } else {
@@ -661,11 +732,17 @@ struct KMeansAlgorithm;
 
 #[async_trait]
 impl ClusteringAlgorithm for KMeansAlgorithm {
-    async fn cluster(&self, nodes: &[NodeInfo], constraints: &ClusteringConstraints) -> Vec<NodeCluster> {
+    async fn cluster(
+        &self,
+        nodes: &[NodeInfo],
+        constraints: &ClusteringConstraints,
+    ) -> Vec<NodeCluster> {
         // Simplified k-means implementation
-        let k = constraints.max_clusters.unwrap_or(nodes.len() / constraints.min_cluster_size);
+        let k = constraints
+            .max_clusters
+            .unwrap_or(nodes.len() / constraints.min_cluster_size);
         let k = k.min(nodes.len()).max(1);
-        
+
         let mut clusters = Vec::new();
         for i in 0..k {
             let cluster = NodeCluster {
@@ -682,16 +759,16 @@ impl ClusteringAlgorithm for KMeansAlgorithm {
             };
             clusters.push(cluster);
         }
-        
+
         // Assign nodes to clusters (simplified)
         for (i, node) in nodes.iter().enumerate() {
             let cluster_idx = i % k;
             clusters[cluster_idx].members.insert(node.id.clone());
         }
-        
+
         // Remove empty clusters
         clusters.retain(|c| c.members.len() >= constraints.min_cluster_size);
-        
+
         clusters
     }
 
@@ -705,7 +782,11 @@ struct HierarchicalAlgorithm;
 
 #[async_trait]
 impl ClusteringAlgorithm for HierarchicalAlgorithm {
-    async fn cluster(&self, nodes: &[NodeInfo], constraints: &ClusteringConstraints) -> Vec<NodeCluster> {
+    async fn cluster(
+        &self,
+        nodes: &[NodeInfo],
+        constraints: &ClusteringConstraints,
+    ) -> Vec<NodeCluster> {
         // Simplified hierarchical clustering
         let mut clusters = Vec::new();
         let mut current_cluster = NodeCluster {
@@ -720,10 +801,10 @@ impl ClusteringAlgorithm for HierarchicalAlgorithm {
             performance_metrics: ClusterMetrics::default(),
             internal_topology: OrganizationPattern::Hierarchical,
         };
-        
+
         for node in nodes {
             current_cluster.members.insert(node.id.clone());
-            
+
             if current_cluster.members.len() >= constraints.max_cluster_size {
                 clusters.push(current_cluster.clone());
                 current_cluster = NodeCluster {
@@ -740,11 +821,11 @@ impl ClusteringAlgorithm for HierarchicalAlgorithm {
                 };
             }
         }
-        
+
         if current_cluster.members.len() >= constraints.min_cluster_size {
             clusters.push(current_cluster);
         }
-        
+
         clusters
     }
 

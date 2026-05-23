@@ -1,6 +1,6 @@
 [package]
 name = "synaptic-mesh-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["rUv <https://github.com/ruvnet>"]
 description = "Command-line interface for Synaptic Neural Mesh"
@@ -30,7 +30,7 @@ libp2p = { version = "0.53", features = ["tcp", "websocket", "noise", "yamux", "
 multiaddr = "0.18"
 
 # Database for persistence
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 
 # CLI framework
 clap = { version = "4.0", features = ["derive", "env"] }
