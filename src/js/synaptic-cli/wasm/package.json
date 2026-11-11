@@ -1,5 +1,6 @@
 {
   "name": "ruv-fann",
+  "private": true,
   "collaborators": [
     "rUv Contributors"
   ],

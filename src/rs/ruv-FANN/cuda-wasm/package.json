@@ -1,5 +1,6 @@
 {
   "name": "cuda-wasm",
+  "private": true,
   "version": "1.1.1",
   "description": "High-performance CUDA to WebAssembly/WebGPU transpiler with Rust safety - Run GPU kernels in browsers and Node.js",
   "main": "dist/index.js",
