@@ -1,5 +1,6 @@
 [package]
 name = "daa-orchestrator"
+publish = false
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

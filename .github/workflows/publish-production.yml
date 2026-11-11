@@ -315,43 +315,69 @@ jobs:
 
       - name: Publish Rust crates
         run: |
-          # Publish in dependency order
+          # Only publish crates whose canonical repository is this repo.
+          # Vendored copies of ruv-FANN, QuDAG and daa crates (publish = false)
+          # and any name already on crates.io from another repository are skipped.
+          OWN_REPO_RE='github\.com/ruvnet/synaptic-(neural-)?mesh(\.git)?/?$'
           cd src/rs
-          
-          echo "Publishing qudag-core..."
-          cd qudag-core && cargo publish || echo "Already published or failed"
-          cd ..
-          
-          echo "Publishing ruv-fann-wasm..."
-          cd ruv-fann-wasm && cargo publish || echo "Already published or failed"
-          cd ..
-          
-          echo "Publishing neural-mesh..."
-          cd neural-mesh && cargo publish || echo "Already published or failed"
-          cd ..
-          
-          echo "Publishing daa-swarm..."
-          cd daa-swarm && cargo publish || echo "Already published or failed"
+
+          # Publish in dependency order
+          for crate in qudag-core ruv-fann-wasm neural-mesh daa-swarm; do
+            pkg=$(cargo metadata --no-deps --format-version 1 --manifest-path "$crate/Cargo.toml" \
+              | jq -c --arg m "$PWD/$crate/Cargo.toml" '.packages[] | select(.manifest_path == $m)')
+            name=$(jq -r '.name' <<<"$pkg")
+            repo=$(jq -r '.repository // ""' <<<"$pkg")
+            if [ "$(jq -c '.publish' <<<"$pkg")" = "[]" ]; then
+              echo "::warning::Skipping $name: publish = false"; continue
+            fi
+            if ! grep -qiE "$OWN_REPO_RE" <<<"$repo"; then
+              echo "::warning::Skipping $name: repository '$repo' is not ruvnet/synaptic-mesh"; continue
+            fi
+            registry_repo=$(curl -sf -A synaptic-mesh-publish "https://crates.io/api/v1/crates/$name" | jq -r '.crate.repository // ""' || true)
+            if [ -n "$registry_repo" ] && ! grep -qiE "$OWN_REPO_RE" <<<"$registry_repo"; then
+              echo "::warning::Skipping $name: crates.io name belongs to $registry_repo"; continue
+            fi
+            echo "Publishing $name..."
+            (cd "$crate" && cargo publish) || echo "::warning::$name: already published or failed"
+          done
 
       - name: Publish NPM packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # Only publish packages whose canonical repository is this repo.
+          # src/js/ruv-swarm is a private vendored copy of ruvnet/ruv-FANN's ruv-swarm,
+          # so it is skipped; so is any name already on npm from another repository.
+          OWN_REPO_RE='github\.com/ruvnet/synaptic-(neural-)?mesh(\.git)?/?$'
           cd src/js/ruv-swarm
-          
+
           # Set npm tag based on publish type
           if [ "${{ inputs.publish_type }}" = "beta" ]; then
             NPM_TAG="beta"
           else
             NPM_TAG="latest"
           fi
-          
-          echo "Publishing ruv-swarm package..."
-          npm publish --access public --tag $NPM_TAG
-          
-          echo "Publishing WASM package..."
-          cd wasm
-          npm publish --access public --tag $NPM_TAG
+
+          for dir in . wasm; do
+            if [ ! -f "$dir/package.json" ]; then
+              echo "::warning::Skipping $dir: no package.json"; continue
+            fi
+            name=$(node -p "require('./$dir/package.json').name")
+            private=$(node -p "require('./$dir/package.json').private === true")
+            repo=$(node -p "const r = require('./$dir/package.json').repository; (typeof r === 'string' ? r : (r && r.url)) || ''")
+            if [ "$private" = "true" ]; then
+              echo "::warning::Skipping $name: private"; continue
+            fi
+            if ! grep -qiE "$OWN_REPO_RE" <<<"$repo"; then
+              echo "::warning::Skipping $name: repository '$repo' is not ruvnet/synaptic-mesh"; continue
+            fi
+            registry_repo=$(npm view "$name" repository.url 2>/dev/null || true)
+            if [ -n "$registry_repo" ] && ! grep -qiE "$OWN_REPO_RE" <<<"$registry_repo"; then
+              echo "::warning::Skipping $name: npm name belongs to $registry_repo"; continue
+            fi
+            echo "Publishing $name..."
+            (cd "$dir" && npm publish --access public --tag "$NPM_TAG")
+          done
 
   notify:
     name: Notify on Completion

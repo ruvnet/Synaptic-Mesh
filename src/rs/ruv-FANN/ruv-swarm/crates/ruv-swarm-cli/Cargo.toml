@@ -1,5 +1,6 @@
 [package]
 name = "ruv-swarm-cli"
+publish = false
 version = "1.0.5"
 edition = "2021"
 authors = ["RUV FANN Contributors"]

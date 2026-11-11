@@ -1,5 +1,6 @@
 [package]
 name = "ruv-swarm-benchmarking"
+publish = false
 version = "1.0.5"
 edition = "2021"
 authors = ["RUV-SWARM Team"]
