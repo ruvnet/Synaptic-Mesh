@@ -18,7 +18,7 @@ jobs:
         include:
           - dir: src/mcp
             audit_flags: ''
-            audit: false
+            audit: true
             test: false
             build: true
           - dir: src/js/ruv-swarm
