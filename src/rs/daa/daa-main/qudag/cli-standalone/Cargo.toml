@@ -3,6 +3,7 @@
 
 [package]
 name = "qudag-cli"
+publish = false
 version = "0.2.0"
 edition = "2021"
 authors = ["rUv <https://github.com/ruvnet>"]

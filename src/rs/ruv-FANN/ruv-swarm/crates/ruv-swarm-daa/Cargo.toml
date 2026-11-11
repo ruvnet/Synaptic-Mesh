@@ -1,5 +1,6 @@
 [package]
 name = "ruv-swarm-daa"
+publish = false
 version = "1.0.6"
 edition = "2021"
 description = "Decentralized Autonomous Agents (DAA) integration for ruv-swarm"

@@ -1,5 +1,6 @@
 [package]
 name = "ruv-swarm-ml-training"
+publish = false
 version = "1.0.5"
 edition.workspace = true
 authors.workspace = true

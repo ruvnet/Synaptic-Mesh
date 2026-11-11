@@ -1,5 +1,6 @@
 [package]
 name = "ruv-fann"
+publish = false
 version = "0.1.6"
 edition = "2021"
 rust-version = "1.81"

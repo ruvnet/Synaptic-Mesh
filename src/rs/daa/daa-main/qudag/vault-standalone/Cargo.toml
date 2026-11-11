@@ -3,6 +3,7 @@
 
 [package]
 name = "qudag-vault-core"
+publish = false
 version = "0.2.0"
 edition = "2021"
 authors = ["QuDAG Team <team@qudag.com>", "rUv <ruv@ruv.net>"]

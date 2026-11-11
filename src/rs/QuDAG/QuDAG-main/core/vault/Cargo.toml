@@ -1,5 +1,6 @@
 [package]
 name = "qudag-vault-core"
+publish = false
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

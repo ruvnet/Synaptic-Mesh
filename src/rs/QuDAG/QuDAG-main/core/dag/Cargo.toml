@@ -1,5 +1,6 @@
 [package]
 name = "qudag-dag"
+publish = false
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "qudag-exchange"
+publish = false
 version = "0.2.0"
 authors = ["QuDAG Exchange Team"]
 edition = "2021"
