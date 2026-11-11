@@ -1,0 +1,47 @@
+name: Lockfile CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    name: ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: src/mcp
+            audit_flags: ''
+            audit: false
+            test: false
+            build: true
+          - dir: src/js/ruv-swarm
+            audit_flags: '--omit=dev'
+            audit: true
+            test: true
+            build: false
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: npm ci
+        run: npm ci --no-fund
+      - name: npm audit (critical)
+        if: ${{ matrix.audit }}
+        run: npm audit --audit-level=critical ${{ matrix.audit_flags }}
+      - name: build
+        if: ${{ matrix.build }}
+        run: npm run build
+      - name: test
+        if: ${{ matrix.test }}
+        run: npm test
