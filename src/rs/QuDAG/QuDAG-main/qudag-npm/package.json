@@ -1,5 +1,6 @@
 {
   "name": "qudag",
+  "private": true,
   "version": "1.2.1",
   "description": "QuDAG - Quantum-Resistant Distributed Communication Platform",
   "keywords": [

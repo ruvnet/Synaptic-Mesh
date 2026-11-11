@@ -1,5 +1,6 @@
 {
   "name": "@claude-flow/memory",
+  "private": true,
   "version": "1.0.0",
   "description": "SPARC Memory Bank - Persistent memory system for Claude-Flow",
   "main": "./dist/index.js",
